@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 
 import requests
@@ -23,7 +24,7 @@ def get_model_id():
             print("id.txt file created, run the script again")
     else:
         with open("id.txt", "r") as f:
-            model_id_list = [line.strip().split("/")[-2] for line in f if line.strip()]
+            model_id_list = [re.search("\d+", line.strip()).group() for line in f if line.strip()]
         return model_id_list
 
 

@@ -1,0 +1,11 @@
+# folders
+
+venv
+.idea
+__pycache__
+utils/
+# files
+*.json
+*.ckpt
+*.safetensor
+id.txt

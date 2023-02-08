@@ -6,6 +6,9 @@ from tqdm import tqdm
 from src.utils.fileutils import checkIfFileExists, compareSizes
 from src.utils.utils import headers
 
+session_downloadedFileCount = 0
+session_downloadedBytes = 0
+
 
 def downloadFile(url, imageurl, modelType, hash, retries=20):
     """

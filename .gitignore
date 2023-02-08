@@ -3,7 +3,7 @@
 venv
 .idea
 __pycache__
-utils/
+
 # files
 *.json
 *.ckpt

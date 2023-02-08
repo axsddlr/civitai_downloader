@@ -185,20 +185,17 @@ def iterateAModel(model):
         # Iterating through all the model versions and getting all the trained words.
         trainedWords = [item for sublist in model["modelVersions"] for item in sublist["trainedWords"]]
 
-        if len(trainedWords) == 0:  # Checking if the list `trainedWords` is empty.
-            continue
-        else:
+        if len(trainedWords) > 0:  # Check if the list `trainedWords` is not empty.
+            model_to_file = {
+                "LORA": "LORA/" + file.name + ".txt",
+                "TextualInversion": "TextualInversion/" + file.name + ".txt",
+                "Checkpoint": "Checkpoint/" + file.name + ".txt",
+            }
+
             # Writing the trained words to a file.
-            if model["type"] == "LORA":
-                with open("LORA/" + file.name + ".txt", "w") as f:
-                    for item in trainedWords:
-                        f.write("%s " % item)
-            elif model["type"] == "TextualInversion":
-                with open("TextualInversion/" + file.name + ".txt", "w") as f:
-                    for item in trainedWords:
-                        f.write("%s " % item)
-            elif model["type"] == "Checkpoint":
-                with open("Checkpoint/" + file.name + ".txt", "w") as f:
+            file_path = model_to_file.get(model["type"], None)
+            if file_path:
+                with open(file_path, "w") as f:
                     for item in trainedWords:
                         f.write("%s " % item)
 

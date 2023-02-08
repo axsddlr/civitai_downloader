@@ -81,10 +81,3 @@ https://civitai.com/models/5216/rev
 Distributed under the MIT License. See `LICENSE` for more information.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-
-
-
-
-
-## Credits

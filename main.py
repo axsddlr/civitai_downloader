@@ -13,10 +13,10 @@ from src.utils.utils import readMemory, writeMemory, printv
 
 def get_model_id():
     """
-    It reads the file "id.txt" and returns a list of model IDs
-    :return: A list of model ids
+    It checks if the file `id.txt` exists, if it does not exist, it creates it, if it exists, it reads the file and returns
+    a list of all the numbers in the file.
+    :return: A list of all the model ids.
     """
-
     # Checking if the file id.txt exists. If it does not exist, it will create it.
     if not os.path.exists("id.txt"):
         with open("id.txt", "w") as f:
@@ -24,6 +24,7 @@ def get_model_id():
             print("id.txt file created, run the script again")
     else:
         with open("id.txt", "r") as f:
+            # Getting all the numbers from the file `id.txt` and putting them in a list.
             model_id_list = [re.search("\d+", line.strip()).group() for line in f if line.strip()]
         return model_id_list
 
@@ -50,6 +51,7 @@ def getModels(session):
     for modelID in modelIDs:
         modelR = session.get(f"https://civitai.com/api/v1/models/{str(modelID)}", headers=headers)
         models.append(json.loads(modelR.text))
+    # print(models)
     return models
 
 
@@ -85,7 +87,7 @@ def findFiles(model):
     acceptableTypes = ["Pruned Model", "Model", "VAE"]
     modelFound = False
     for file in model["modelVersions"][0]["files"]:
-        print(f"{file}")
+        # print(f"{file}")
         if file["type"] in acceptableTypes:
             # if file["type"] == "Model" and modelFound:  # Prevent multiple models from being downloaded
             #    continue
@@ -119,7 +121,7 @@ def getFiles(model):
     safetensorfound = False
     pickletensorfound = False
     for file in files:
-        print(f"{file}")
+        # print(f"{file}")
         # find a safetensor first, if any
         if file["format"] == "SafeTensor":
             # use this one
@@ -165,12 +167,12 @@ def iterateAModel(model):
     global aListOfAllDownloadedModels
 
     files = getFiles(model)
-    print(f"{files}")
+
     # It creates a directory called JSON if it doesn't already exist.
     os.makedirs("JSON", exist_ok=True)
     with open(os.path.join("JSON", files[0].name + ".json"), "w") as f:
         json.dump(model, f, indent=4)
-        print("Dumped!")
+        # print("Dumped!")
 
     # Iterating through all the files in the model.
     for file in files:
@@ -179,6 +181,26 @@ def iterateAModel(model):
         if not downloadSuccessful:
             printv(f"Download failed, {file.name} skipping...")
             return
+
+        # Iterating through all the model versions and getting all the trained words.
+        trainedWords = [item for sublist in model["modelVersions"] for item in sublist["trainedWords"]]
+
+        if len(trainedWords) == 0:  # Checking if the list `trainedWords` is empty.
+            continue
+        else:
+            # Writing the trained words to a file.
+            if model["type"] == "LORA":
+                with open("LORA/" + file.name + ".txt", "w") as f:
+                    for item in trainedWords:
+                        f.write("%s " % item)
+            elif model["type"] == "TextualInversion":
+                with open("TextualInversion/" + file.name + ".txt", "w") as f:
+                    for item in trainedWords:
+                        f.write("%s " % item)
+            elif model["type"] == "Checkpoint":
+                with open("Checkpoint/" + file.name + ".txt", "w") as f:
+                    for item in trainedWords:
+                        f.write("%s " % item)
 
     # Adding the model to the list of all downloaded models.
     aListOfAllDownloadedModels[model["id"]] = model["modelVersions"][0]["id"]

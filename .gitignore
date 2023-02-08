@@ -7,5 +7,7 @@ utils/
 # files
 *.json
 *.ckpt
-*.safetensor
-id.txt
+*.safetensors
+*.txt
+*.pt
+*.png

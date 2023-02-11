@@ -169,10 +169,15 @@ def iterateAModel(model):
     files = getFiles(model)
 
     # It creates a directory called JSON if it doesn't already exist.
-    os.makedirs("JSON", exist_ok=True)
-    with open(os.path.join("JSON", files[0].name + ".json"), "w") as f:
-        json.dump(model, f, indent=4)
-        # print("Dumped!")
+
+    # Checking if there are any files in the model.
+    if len(files) > 0:
+        os.makedirs("JSON", exist_ok=True)
+        with open(os.path.join("JSON", files[0].name + ".json"), "w") as f:
+            json.dump(model, f, indent=4)
+    else:
+        print("No files found, skipping...")
+        return
 
     # Iterating through all the files in the model.
     for file in files:

@@ -1,8 +1,10 @@
-import re
-import os
 import json
+import os
+import re
+
 import requests
-from src.utils.utils import headers, readMemory, writeMemory, printv
+
+from src.utils.utils import headers
 
 
 def get_model_id():

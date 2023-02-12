@@ -67,13 +67,13 @@ def isModelAlreadyInMemory(modelIdStr, model):
 
     :param modelIdStr: The model's id, as a string
     :param model: The model object from the API
-    :return: A list of all the models that have been downloaded
+    :return: A boolean indicating whether the model has already been downloaded
     """
     if modelIdStr in aListOfAllDownloadedModels:
         if aListOfAllDownloadedModels[modelIdStr] == model["modelVersions"][0]["id"]:
-            printv("Skipping model, already in memory", model["name"])
+            print("Skipping model, already in memory", model["name"])
             return True
-        print("Update found for model" + model["name"])
+        print("Update found for model", model["name"])
     return False
 
 
@@ -199,8 +199,12 @@ def iterateAModel(model):
             }
 
             file_path = model_to_file.get(model["type"], None)
-            if file_path:
-                with open(file_path, "w+") as f:
+            if not file_path:
+                print("No file path provided, skipping...")
+            elif os.path.exists(file_path):
+                print(f"File path exists {file_path}, skipping...")
+            else:
+                with open(file_path, "w+", encoding="utf-8") as f:
                     f.write(', '.join(trainedWords))
 
     # Adding the model to the list of all downloaded models.
@@ -225,9 +229,13 @@ allModels = getModels(session)
 # Iterating through all the models in the list `allModels` and printing out a progress bar.
 # Downloading all the models from the session.
 for model in tqdm(getModels(session), desc="Downloading models", leave=True, position=0):
-    #  Check if the model has already been downloaded
-    modelExists = isModelAlreadyInMemory(str(model["id"]),
-                                         model)  # Keep in mind that modelExists will be false if there is an update
+    try:
+
+        modelExists = isModelAlreadyInMemory(model["id"], model)
+    except KeyError:
+        print(f"KeyError, model: {model}")
+        continue
+
     modelIsCheckpoint = model["type"] == "Checkpoint"
 
     if not modelExists:
@@ -250,6 +258,12 @@ for model in tqdm(getModels(session), desc="Downloading models", leave=True, pos
 
     if len(threading.enumerate()) > 20 or model["type"] == "Checkpoint":  # 50 threads or a checkpoint
         waitUntilAllThreadsAreDone(allThreads)  # Wait up for all the downloads to finish
+    else:
+        # Handle the case where the 'id' key is not in the model dictionary
+        continue
+        # print("Error: the 'id' key is not in the model dictionary.")
+
+    writeMemory(aListOfAllDownloadedModels)
 
 # It waits until all the threads in the list `allThreads` are done.
 waitUntilAllThreadsAreDone(allThreads)

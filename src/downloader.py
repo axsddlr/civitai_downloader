@@ -8,6 +8,7 @@ from src.utils.utils import headers
 
 session_downloadedFileCount = 0
 session_downloadedBytes = 0
+failedHashes = 0
 
 
 def downloadFile(url, imageurl, modelType, hash, retries=20):
@@ -28,7 +29,10 @@ def downloadFile(url, imageurl, modelType, hash, retries=20):
         response = requests.get(url, stream=True, headers=headers)
         total_size_in_bytes = int(response.headers.get('content-length', 0))
         block_size = 1024 * 1024 * 100  # 100 MB chunk size
-        filename = response.headers.get('Content-Disposition').split('filename=')[1].replace('"', '')
+        if response.headers.get('Content-Disposition'):
+            filename = response.headers.get('Content-Disposition').split('filename=')[1].replace('"', '')
+        else:
+            filename = url.split("/")[-1]
         filename = os.path.join(modelType, filename)  # Put the model in a folder based on its type
 
         #  Check if the file already exists size+hash
@@ -55,7 +59,7 @@ def downloadFile(url, imageurl, modelType, hash, retries=20):
         #  Check hash using sha256
         time.sleep(1)
         if not compareSizes(filename, total_size_in_bytes):  # If the hash doesn't match
-            print(f"{filename} Size doesn't match, retrying...")
+            # print(f"{filename} Size doesn't match, retrying...")
             failedHashes += 1
             os.remove(filename)  # Delete the file
             continue  # Retry

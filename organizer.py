@@ -36,7 +36,12 @@ def get_models(session):
     models = []
     for model_id in model_ids:
         model_response = session.get(f"https://civitai.com/api/v1/models/{str(model_id)}", headers=headers)
-        models.append(json.loads(model_response.text))
+        try:
+            model_data = json.loads(model_response.text)
+        except ValueError:
+            print(f"Invalid JSON response for model id: {model_id}, URL: {model_response.url}")
+            continue
+        models.append(model_data)
     if len(models) == 0:
         print("id.txt is empty, please add model ids to it")
         exit()
@@ -48,9 +53,11 @@ def main():
     session = requests.Session()
     models = get_models(session)
     for model in models:
-        type_ = model["type"]
-        # for model_version in model["modelVersions"]:
-        #     for file in model_version["files"]:
+        try:
+            type_ = model["type"]
+        except KeyError:
+            print(f"KeyError: 'type' occurred for model: {model}")
+            continue
         link = "https://civitai.com/models/" + str(model["id"])
         with open(f"{type_}.txt", "a") as f:
             f.write(link + "\n")

@@ -1,3 +1,5 @@
+# Importing the argparse module
+import argparse
 import json
 import os
 import re
@@ -10,6 +12,18 @@ from src.downloader import downloadFile
 from src.utils.utils import headers
 from src.utils.utils import readMemory, writeMemory, printv
 
+# Creating an argument parser object
+parser = argparse.ArgumentParser()
+
+# Adding the arguments for the file names
+parser.add_argument("--lora", action="store_true", help="Load LORA.txt instead of id.txt")
+parser.add_argument("--ti", action="store_true", help="Load TextualInversion.txt instead of id.txt")
+parser.add_argument("--ckpt", action="store_true", help="Load Checkpoint.txt instead of id.txt")
+parser.add_argument("--hn", action="store_true", help="Load Hypernetwork.txt instead of id.txt")
+
+# Parsing the arguments
+args = parser.parse_args()
+
 
 def get_model_id():
     """
@@ -17,14 +31,26 @@ def get_model_id():
     a list of all the numbers in the file.
     :return: A list of all the model ids.
     """
-    # Checking if the file id.txt exists. If it does not exist, it will create it.
-    if not os.path.exists("id.txt"):
-        with open("id.txt", "w") as f:
-            f.write("")
-            print("id.txt file created, run the script again")
+    # Checking if the user specified a different file name
+    if args.lora:
+        file_name = "LORA.txt"
+    elif args.ti:
+        file_name = "TextualInversion.txt"
+    elif args.ckpt:
+        file_name = "Checkpoint.txt"
+    elif args.hn:
+        file_name = "Hypernetwork.txt"
     else:
-        with open("id.txt", "r") as f:
-            # Getting all the numbers from the file `id.txt` and putting them in a list.
+        file_name = "id.txt"
+
+    # Checking if the file exists. If it does not exist, it will create it.
+    if not os.path.exists(file_name):
+        with open(file_name, "w") as f:
+            f.write("")
+            print(f"{file_name} file created, run the script again")
+    else:
+        with open(file_name, "r") as f:
+            # Getting all the numbers from the file and putting them in a list.
             model_id_list = [re.search("\d+", line.strip()).group() for line in f if line.strip()]
         return model_id_list
 
@@ -46,13 +72,21 @@ def getModels(session):
     :param session: the session object that you created earlier
     :return: A list of dictionaries.
     """
-    modelIDs = get_model_id()
+    model_ids = get_model_id()
     models = []
-    for modelID in modelIDs:
-        modelR = session.get(f"https://civitai.com/api/v1/models/{str(modelID)}", headers=headers)
-        models.append(json.loads(modelR.text))
-    # print(models)
-    return models
+    for model_id in model_ids:
+        model_response = session.get(f"https://civitai.com/api/v1/models/{str(model_id)}", headers=headers)
+        try:
+            model_data = json.loads(model_response.text)
+        except ValueError:
+            print(f"Invalid JSON response for model id: {model_id}, URL: {model_response.url}")
+            continue
+        models.append(model_data)
+    if len(models) == 0:
+        print("id.txt is empty, please add model ids to it")
+        exit()
+    else:
+        return models
 
 
 session_downloadedFileCount = 0

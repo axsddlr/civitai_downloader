@@ -121,36 +121,40 @@ async def download_file(filename: str) -> None:
     :return: None
     """
     _, _, model_type, modelver_list = await map_api()
-    download_url = modelver_list[0]["files"][0]["downloadUrl"]
-    block_size = 1024 * 1024 * 4  # 4 MB
-    file_size = modelver_list[0]["files"][0]["sizeKB"]
-    filepath = os.path.join(str(model_type), filename)
+    for modelver in modelver_list:
+        files = modelver["files"]
+        for file in files:
 
-    # if filepath doesn't exist, create it
-    if not os.path.exists(os.path.dirname(filepath)):
-        os.makedirs(os.path.dirname(filepath))
+            download_url = file["downloadUrl"]
+            block_size = 1024 * 1024 * 4  # 4 MB
+            file_size = file["sizeKB"]
+            filepath = os.path.join(str(model_type), filename)
 
-    if checkIfFileExists(filepath, file_size):
-        print(f"File already exists: {filepath}")
-        return
+            # if filepath doesn't exist, create it
+            if not os.path.exists(os.path.dirname(filepath)):
+                os.makedirs(os.path.dirname(filepath))
 
-    async with httpx.AsyncClient() as client:
-        async with client.stream("GET", download_url, follow_redirects=True) as response:
-            response.raise_for_status()
-            total = int(response.headers["Content-Length"])
+            if checkIfFileExists(filepath, file_size):
+                print(f"File already exists: {filepath}")
+                return
 
-            with rich.progress.Progress(
-                    "[progress.percentage]{task.percentage:>3.0f}%",
-                    rich.progress.BarColumn(bar_width=50),
-                    rich.progress.DownloadColumn(),
-                    rich.progress.TransferSpeedColumn(),
-            ) as progress:
-                download_task = progress.add_task("Download", total=total)
-                with open(filepath, "wb") as fr:
-                    async for chunk in response.aiter_bytes(block_size):
-                        fr.write(chunk)
-                        progress.update(download_task, completed=response.num_bytes_downloaded)
-    print(f"File downloaded: {filepath}")
+            async with httpx.AsyncClient() as client:
+                async with client.stream("GET", download_url, follow_redirects=True) as response:
+                    response.raise_for_status()
+                    total = int(response.headers["Content-Length"])
+
+                    with rich.progress.Progress(
+                            "[progress.percentage]{task.percentage:>3.0f}%",
+                            rich.progress.BarColumn(bar_width=50),
+                            rich.progress.DownloadColumn(),
+                            rich.progress.TransferSpeedColumn(),
+                    ) as progress:
+                        download_task = progress.add_task("Download", total=total)
+                        with open(filepath, "wb") as fr:
+                            async for chunk in response.aiter_bytes(block_size):
+                                fr.write(chunk)
+                                progress.update(download_task, completed=response.num_bytes_downloaded)
+            print(f"File downloaded: {filepath}")
 
 
 class File:
@@ -219,8 +223,9 @@ async def main():
 
     # Print the file names and URLs
     for file in files_as_objects:
+        print(f"\nDownloading {file.name}\n")
         await download_file(file.name)
-        print(f"Name: {file.name}\nURL: {file.download_url}\n")
+
 
 
 if __name__ == '__main__':

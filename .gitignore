@@ -3,9 +3,11 @@
 venv
 .idea
 __pycache__
+JSON
+TextualInversion
+Checkpoint
 
 # files
-*.json
 *.ckpt
 *.safetensors
 *.txt

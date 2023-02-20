@@ -78,11 +78,24 @@ def compareSizes(filename, size):
     return False
 
 
-async def download_file(url, filename):
+async def download_file(filename: str) -> None:
+    _, _, modelver_list = await get_model_versions_and_ids()
+    download_url = modelver_list[0]["files"][0]["downloadUrl"]
+    block_size = 1024 * 1024 * 4  # 1 MB
+    file_size = modelver_list[0]["files"][0]["sizeKB"]
+    filepath = os.path.join("downloads", filename)
+
+    if checkIfFileExists(filepath, file_size):
+        print(f"File already exists: {filepath}")
+        return
+
     async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        with open(filename, "wb") as f:
-            f.write(response.content)
+        async with client.stream("GET", download_url, follow_redirects=True) as response:
+            response.raise_for_status()
+            with open(filepath, "wb") as fr:
+                async for chunk in response.aiter_bytes(block_size):
+                    fr.write(chunk)
+    print(f"File downloaded: {filepath}")
 
 
 class File:
@@ -91,14 +104,7 @@ class File:
         self.download_url = download_url
         self.sha256_hash = sha256_hash
 
-    async def download_file(self, file_name):
-        async with httpx.AsyncClient() as client:
-            async with client.stream("GET", self.download_url) as response:
-                response.raise_for_status()
-                with open(file_name, 'wb') as fr:
-                    async for chunk in response.aiter_bytes(1024 * 1024 * 20):
-                        fr.write(chunk)
-
+    @staticmethod
     async def get_files(modelver):
         files = modelver["files"]
         files_as_objects = []
@@ -119,6 +125,7 @@ class File:
 
 
 async def get_all_files():
+    # It's unpacking the tuple returned by get_model_versions_and_ids() into three variables.
     _, _, modelver_list = await get_model_versions_and_ids()
     all_files = []
     for modelver in modelver_list:
@@ -133,7 +140,7 @@ async def main():
 
     # Print the file names and URLs
     for file in files_as_objects:
-        await download_file(file.download_url, file.name)
+        await download_file(file.name)
         print(f"Name: {file.name}\nURL: {file.download_url}\n")
 
 

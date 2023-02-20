@@ -44,12 +44,22 @@ async def get_all_models():
         response_json = response.json()
         all_models.extend(response_json["items"])
 
-        print(f"Found {len(all_models)} models")
+        # print(f"Found {len(all_models)} models")
         return all_models
 
 
-async def get_model_versions_and_ids():
+async def map_api():
+    """
+    It returns a list of all the model version IDs, a list of all the model IDs, the type of the first model in the
+    list of all models, and a list of the first model version for each model :return: model_versions_id, model_ids,
+    model_type, modelver_list
+    """
+    # It's getting all the models from the Civitai API.
     all_models = await get_all_models()
+
+    # It's getting the type of the first model in the list of all models.
+    model_type = all_models[0]["type"]
+
     # Here, the modified model_versions list comprehension iterates over each model in all_models, then over each
     # version in the modelVersions list for that model, and returns the "id" attribute for each version.
     model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
@@ -61,10 +71,17 @@ async def get_model_versions_and_ids():
     # It's a list comprehension that iterates over each model in all_models, then over each version in the
     # modelVersions list for that model, and returns the "id" attribute for each version.
     modelver_list = [model["modelVersions"][0] for model in all_models]
-    return model_versions_id, model_ids, modelver_list
+    return model_versions_id, model_ids, model_type, modelver_list
 
 
 def checkIfFileExists(filename, size):
+    """
+    If the file exists and is the correct size, return True, otherwise return False
+
+    :param filename: The name of the file to check
+    :param size: The size of the file in bytes
+    :return: True or False
+    """
     if os.path.exists(filename):
         if os.path.getsize(filename) == size:
             return True
@@ -72,6 +89,13 @@ def checkIfFileExists(filename, size):
 
 
 def compareSizes(filename, size):
+    """
+    If the file exists and its size is the same as the size parameter, return True, otherwise return False
+
+    :param filename: The name of the file to check
+    :param size: The size of the file in bytes
+    :return: True or False
+    """
     if os.path.exists(filename):
         if os.path.getsize(filename) == size:
             return True
@@ -79,11 +103,22 @@ def compareSizes(filename, size):
 
 
 async def download_file(filename: str) -> None:
-    _, _, modelver_list = await get_model_versions_and_ids()
+    """
+    > Download the file from the URL and save it to the filepath
+
+    :param filename: The name of the file to be downloaded
+    :type filename: str
+    :return: A list of dictionaries.
+    """
+    _, _, model_type, modelver_list = await map_api()
     download_url = modelver_list[0]["files"][0]["downloadUrl"]
-    block_size = 1024 * 1024 * 4  # 1 MB
+    block_size = 1024 * 1024 * 4  # 20 MB
     file_size = modelver_list[0]["files"][0]["sizeKB"]
-    filepath = os.path.join("downloads", filename)
+    filepath = os.path.join(str(model_type), filename)
+
+    # if filepath doesn't exist, create it
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
 
     if checkIfFileExists(filepath, file_size):
         print(f"File already exists: {filepath}")
@@ -118,7 +153,6 @@ class File:
                     file_type = os.path.splitext(file_name)[1]
                     if file_type == ".safetensors" or file_type == ".ckpt":
                         files_as_objects.append(File(file_name, download_url, sha256_hash))
-                        # await download_file(download_url, file_name)
 
         # print(files_as_objects)
         return files_as_objects
@@ -126,7 +160,7 @@ class File:
 
 async def get_all_files():
     # It's unpacking the tuple returned by get_model_versions_and_ids() into three variables.
-    _, _, modelver_list = await get_model_versions_and_ids()
+    _, _, _, modelver_list = await map_api()
     all_files = []
     for modelver in modelver_list:
         files = await File.get_files(modelver)

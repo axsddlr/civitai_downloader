@@ -3,6 +3,7 @@ import httpx
 import json
 import os
 import argparse
+import rich.progress
 
 with open('config.json', 'r') as f:
     config = json.load(f)
@@ -14,7 +15,6 @@ parser = argparse.ArgumentParser()
 
 # Adding the arguments for the file names
 parser.add_argument("--pickle", action="store_true", help="Only download PickleTensor files")
-
 
 # Parsing the arguments
 args = parser.parse_args()
@@ -118,11 +118,11 @@ async def download_file(filename: str) -> None:
 
     :param filename: The name of the file to be downloaded
     :type filename: str
-    :return: A list of dictionaries.
+    :return: None
     """
     _, _, model_type, modelver_list = await map_api()
     download_url = modelver_list[0]["files"][0]["downloadUrl"]
-    block_size = 1024 * 1024 * 4  # 20 MB
+    block_size = 1024 * 1024 * 4  # 4 MB
     file_size = modelver_list[0]["files"][0]["sizeKB"]
     filepath = os.path.join(str(model_type), filename)
 
@@ -137,9 +137,19 @@ async def download_file(filename: str) -> None:
     async with httpx.AsyncClient() as client:
         async with client.stream("GET", download_url, follow_redirects=True) as response:
             response.raise_for_status()
-            with open(filepath, "wb") as fr:
-                async for chunk in response.aiter_bytes(block_size):
-                    fr.write(chunk)
+            total = int(response.headers["Content-Length"])
+
+            with rich.progress.Progress(
+                    "[progress.percentage]{task.percentage:>3.0f}%",
+                    rich.progress.BarColumn(bar_width=50),
+                    rich.progress.DownloadColumn(),
+                    rich.progress.TransferSpeedColumn(),
+            ) as progress:
+                download_task = progress.add_task("Download", total=total)
+                with open(filepath, "wb") as fr:
+                    async for chunk in response.aiter_bytes(block_size):
+                        fr.write(chunk)
+                        progress.update(download_task, completed=response.num_bytes_downloaded)
     print(f"File downloaded: {filepath}")
 
 

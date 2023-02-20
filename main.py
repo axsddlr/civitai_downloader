@@ -2,12 +2,22 @@ import asyncio
 import httpx
 import json
 import os
+import argparse
 
 with open('config.json', 'r') as f:
     config = json.load(f)
 
 api_key = config["civitai_api_key"]
 APIKEY = f"Bearer {api_key}"
+
+parser = argparse.ArgumentParser()
+
+# Adding the arguments for the file names
+parser.add_argument("--pickle", action="store_true", help="Only download PickleTensor files")
+
+
+# Parsing the arguments
+args = parser.parse_args()
 
 
 async def get_all_models():
@@ -145,17 +155,42 @@ class File:
         files_as_objects = []
 
         if files:
-            for file in files:
-                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                    file_name = file["name"]
-                    download_url = file["downloadUrl"]
-                    sha256_hash = file["hashes"]["SHA256"]
-                    file_type = os.path.splitext(file_name)[1]
-                    if file_type == ".safetensors" or file_type == ".ckpt":
-                        files_as_objects.append(File(file_name, download_url, sha256_hash))
+            # First, search for safetensors files (if not prioritized by the user)
+            if not args.pickle:
+                for file in files:
+                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                        file_name = file["name"]
+                        download_url = file["downloadUrl"]
+                        sha256_hash = file["hashes"]["SHA256"]
+                        file_type = os.path.splitext(file_name)[1]
+                        if file_type == ".safetensors":
+                            files_as_objects.append(File(file_name, download_url, sha256_hash))
 
-        # print(files_as_objects)
-        return files_as_objects
+            # If the user wants to prioritize ckpt files, search for them first
+            if args.pickle:
+                for file in files:
+                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                        file_name = file["name"]
+                        download_url = file["downloadUrl"]
+                        sha256_hash = file["hashes"]["SHA256"]
+                        file_type = os.path.splitext(file_name)[1]
+                        if file_type == ".ckpt":
+                            files_as_objects.append(File(file_name, download_url, sha256_hash))
+
+            # If no safetensors or ckpt file is found (or if the user did not prioritize),
+            # search for ckpt files (if not already prioritized)
+            if not files_as_objects:
+                for file in files:
+                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                        file_name = file["name"]
+                        download_url = file["downloadUrl"]
+                        sha256_hash = file["hashes"]["SHA256"]
+                        file_type = os.path.splitext(file_name)[1]
+                        if file_type == ".ckpt":
+                            files_as_objects.append(File(file_name, download_url, sha256_hash))
+
+            # print(files_as_objects)
+            return files_as_objects
 
 
 async def get_all_files():

@@ -11,3 +11,6 @@ __pycache__
 *.txt
 *.pt
 *.png
+
+#config
+config.json

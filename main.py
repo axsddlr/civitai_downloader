@@ -67,7 +67,7 @@ async def map_api():
     # It's getting all the models from the Civitai API.
     all_models = await get_all_models()
 
-    model_type = all_models[0]["type"]
+    model_type = [model["type"] for model in all_models]
     model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
     model_ids = [model["modelVersions"][0]["modelId"] for model in all_models]
     modelver_list = [model["modelVersions"][0] for model in all_models]
@@ -78,7 +78,6 @@ async def download_file(download_url, filename: str) -> None:
     _, _, model_type, modelver_list = await map_api()
     for modelver in modelver_list:
         files = modelver["files"]
-        modelType = model_type
         for file in files:
             if file["name"] != filename:
                 continue

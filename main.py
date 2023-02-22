@@ -25,7 +25,7 @@ async def get_all_models():
     async with httpx.AsyncClient() as client:
         all_models = []
         params = {
-            "types": ("TextualInversion", "Hypernetwork", "LORA", "AestheticGradient"),
+            "types": ("Checkpoint", "TextualInversion", "Hypernetwork", "LORA", "AestheticGradient"),
             "period": "AllTime",
             "limit": 100,
             "page": 1
@@ -39,20 +39,14 @@ async def get_all_models():
             response_json = response.json()
             all_models.extend(response_json["items"])
 
-            mparams = {
-                "types": ("Checkpoint"),
-                # All types: TextualInversion, Hypernetwork, Checkpoint, LORA, AestheticGradient
-                "period": "AllTime",
-                "limit": 30,
-                "page": 1
-            }
-
             for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
                 params["page"] = page_num
-                response = await client.get(url, headers=headers, params={**mparams, **querystring})
+                response = await client.get(url, headers=headers, params={**params, **querystring})
                 if response.status_code == 200:
                     response_json = response.json()
                     all_models.extend(response_json["items"])
+            if args.verbose:
+                print(f"Found {len(all_models)} models")
             return all_models
         else:
             print(f"Request failed with status code {response.status_code}")
@@ -62,67 +56,68 @@ async def map_api():
     """
     It returns a list of all the model version IDs, a list of all the model IDs, the type of the first model in the
     list of all models, and a list of the first model version for each model :return: model_versions_id, model_ids,
-    model_type, modelver_list
+    file_type, modelver_list
     """
     # It's getting all the models from the Civitai API.
     all_models = await get_all_models()
 
-    model_type = [model["type"] for model in all_models]
+    file_type = [model["type"] for model in all_models]
     model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
     model_ids = [model["modelVersions"][0]["modelId"] for model in all_models]
     modelver_list = [model["modelVersions"][0] for model in all_models]
-    return model_versions_id, model_ids, model_type, modelver_list
+    return model_versions_id, model_ids, file_type, modelver_list
 
 
 async def download_file(download_url, filename: str) -> None:
-    _, _, model_type, modelver_list = await map_api()
-    for modelver in modelver_list:
-        files = modelver["files"]
-        for file in files:
-            if file["name"] != filename:
-                continue
-            if args.verbose:
-                print(f"Checking if {filename} exists...")
-            # create filepath if it doesn't exist
-            if not os.path.exists(os.path.join(os.getcwd(), str(modelType))):
-                os.makedirs(os.path.join(os.getcwd(), str(modelType)))
-            # else:
-            #     print(f"{modelType} directory already exists. Skipping creation...")
+    _, _, file_type, modelver_list = await map_api()
+    for ftype in file_type:
+        for modelver in modelver_list:
+            files = modelver["files"]
+            for file in files:
+                if file["name"] != filename:
+                    continue
+                if args.verbose:
+                    print(f"Checking if {filename} exists...")
+                # create filepath if it doesn't exist
+                if not os.path.exists(os.path.join(os.getcwd(), str(ftype))):
+                    os.makedirs(os.path.join(os.getcwd(), str(ftype)))
+                # else:
+                #     print(f"{ftype} directory already exists. Skipping creation...")
 
-            filepath = os.path.join(os.getcwd(), modelType, filename)
+                filepath = os.path.join(os.getcwd(), ftype, filename)
 
-            # check if file already exists
-            if os.path.exists(filepath):
-                # check if file size matches expected size
-                filesize = os.path.getsize(filepath)
-                if filesize == file["sizeKB"] * 1024:
-                    if args.verbose:
-                        print(f"{filename} already exists and is the correct size. Skipping download...")
-                    return
+                # check if file already exists
+                if os.path.exists(filepath):
+                    # check if file size matches expected size
+                    filesize = os.path.getsize(filepath)
+                    if filesize == file["sizeKB"] * 1024:
+                        if args.verbose:
+                            print(f"{filename} already exists and is the correct size. Skipping download...")
+                        return
 
-            print(f"\nDownloading {filename} from {download_url}...")
-            block_size = 1024 * 1024 * 4  # 4 MB
+                print(f"\nDownloading {filename} from {download_url}...")
+                block_size = 1024 * 1024 * 4  # 4 MB
 
-            async with httpx.AsyncClient() as client:
-                async with client.stream("GET", download_url, follow_redirects=True) as response:
-                    response.raise_for_status()
-                    total = int(response.headers["Content-Length"])
+                async with httpx.AsyncClient() as client:
+                    async with client.stream("GET", download_url, follow_redirects=True) as response:
+                        response.raise_for_status()
+                        total = int(response.headers["Content-Length"])
 
-                    with rich.progress.Progress(
-                            "[progress.percentage]{task.percentage:>3.0f}%",
-                            rich.progress.BarColumn(bar_width=50),
-                            rich.progress.DownloadColumn(),
-                            rich.progress.TransferSpeedColumn(),
-                    ) as progress:
-                        download_task = progress.add_task("Download", total=total)
-                        with open(filepath, "wb") as fr:
-                            async for chunk in response.aiter_bytes(block_size):
-                                fr.write(chunk)
-                                progress.update(download_task, completed=response.num_bytes_downloaded)
-            if args.verbose:
-                print(f"File downloaded: {filepath}")
-            return
-    print(f"Could not find file {filename} in available model versions")
+                        with rich.progress.Progress(
+                                "[progress.percentage]{task.percentage:>3.0f}%",
+                                rich.progress.BarColumn(bar_width=50),
+                                rich.progress.DownloadColumn(),
+                                rich.progress.TransferSpeedColumn(),
+                        ) as progress:
+                            download_task = progress.add_task("Download", total=total)
+                            with open(filepath, "wb") as fr:
+                                async for chunk in response.aiter_bytes(block_size):
+                                    fr.write(chunk)
+                                    progress.update(download_task, completed=response.num_bytes_downloaded)
+                if args.verbose:
+                    print(f"File downloaded: {filepath}")
+                return
+        print(f"Could not find file {filename} in available model versions")
 
 
 class File:

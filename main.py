@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 
 # Adding the arguments for the file names
 parser.add_argument("--pickle", action="store_true", help="Only download PickleTensor files")
+parser.add_argument("--verbose", action="store_true", help="Print debug messages")
 
 # Parsing the arguments
 args = parser.parse_args()
@@ -33,29 +34,28 @@ async def get_all_models():
         querystring = {"sort": "Newest", "favorites": "true"}
         headers = {"Authorization": APIKEY}
 
-        response = await client.get(url, headers=headers, params=querystring)
-        response_json = response.json()
-        all_models.extend(response_json["items"])
-
-        for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
-            params["page"] = page_num
-            response = await client.get(url, headers=headers, params=querystring)
+        response = await client.get(url, headers=headers, params={**params, **querystring})
+        if response.status_code == 200:
             response_json = response.json()
             all_models.extend(response_json["items"])
 
-        params = {
-            "types": "Checkpoint",  # All types: TextualInversion, Hypernetwork, Checkpoint, LORA, AestheticGradient
-            "period": "AllTime",
-            "limit": 30,
-            "page": 1
-        }
+            mparams = {
+                "types": ("Checkpoint"),
+                # All types: TextualInversion, Hypernetwork, Checkpoint, LORA, AestheticGradient
+                "period": "AllTime",
+                "limit": 30,
+                "page": 1
+            }
 
-        response = await client.get(url, headers=headers, params=querystring)
-        response_json = response.json()
-        all_models.extend(response_json["items"])
-
-        # print(f"Found {len(all_models)} models")
-        return all_models
+            for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
+                params["page"] = page_num
+                response = await client.get(url, headers=headers, params={**mparams, **querystring})
+                if response.status_code == 200:
+                    response_json = response.json()
+                    all_models.extend(response_json["items"])
+            return all_models
+        else:
+            print(f"Request failed with status code {response.status_code}")
 
 
 async def map_api():
@@ -67,76 +67,42 @@ async def map_api():
     # It's getting all the models from the Civitai API.
     all_models = await get_all_models()
 
-    # It's getting the type of the first model in the list of all models.
     model_type = all_models[0]["type"]
-
-    # Here, the modified model_versions list comprehension iterates over each model in all_models, then over each
-    # version in the modelVersions list for that model, and returns the "id" attribute for each version.
     model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
-
-    # This is a list comprehension that iterates over each model in all_models, then over each version in the
-    # modelVersions list for that model, and returns the "id" attribute for each version.
     model_ids = [model["modelVersions"][0]["modelId"] for model in all_models]
-
-    # It's a list comprehension that iterates over each model in all_models, then over each version in the
-    # modelVersions list for that model, and returns the "id" attribute for each version.
     modelver_list = [model["modelVersions"][0] for model in all_models]
     return model_versions_id, model_ids, model_type, modelver_list
 
 
-def checkIfFileExists(filename, size):
-    """
-    If the file exists and is the correct size, return True, otherwise return False
-
-    :param filename: The name of the file to check
-    :param size: The size of the file in bytes
-    :return: True or False
-    """
-    if os.path.exists(filename):
-        if os.path.getsize(filename) == size:
-            return True
-    return False
-
-
-def compareSizes(filename, size):
-    """
-    If the file exists and its size is the same as the size parameter, return True, otherwise return False
-
-    :param filename: The name of the file to check
-    :param size: The size of the file in bytes
-    :return: True or False
-    """
-    if os.path.exists(filename):
-        if os.path.getsize(filename) == size:
-            return True
-    return False
-
-
-async def download_file(filename: str) -> None:
-    """
-    > Download the file from the URL and save it to the filepath
-
-    :param filename: The name of the file to be downloaded
-    :type filename: str
-    :return: None
-    """
+async def download_file(download_url, filename: str) -> None:
     _, _, model_type, modelver_list = await map_api()
     for modelver in modelver_list:
         files = modelver["files"]
+        modelType = model_type
         for file in files:
+            if file["name"] != filename:
+                continue
+            if args.verbose:
+                print(f"Checking if {filename} exists...")
+            # create filepath if it doesn't exist
+            if not os.path.exists(os.path.join(os.getcwd(), str(modelType))):
+                os.makedirs(os.path.join(os.getcwd(), str(modelType)))
+            # else:
+            #     print(f"{modelType} directory already exists. Skipping creation...")
 
-            download_url = file["downloadUrl"]
+            filepath = os.path.join(os.getcwd(), modelType, filename)
+
+            # check if file already exists
+            if os.path.exists(filepath):
+                # check if file size matches expected size
+                filesize = os.path.getsize(filepath)
+                if filesize == file["sizeKB"] * 1024:
+                    if args.verbose:
+                        print(f"{filename} already exists and is the correct size. Skipping download...")
+                    return
+
+            print(f"\nDownloading {filename} from {download_url}...")
             block_size = 1024 * 1024 * 4  # 4 MB
-            file_size = file["sizeKB"]
-            filepath = os.path.join(str(model_type), filename)
-
-            # if filepath doesn't exist, create it
-            if not os.path.exists(os.path.dirname(filepath)):
-                os.makedirs(os.path.dirname(filepath))
-
-            if checkIfFileExists(filepath, file_size):
-                print(f"File already exists: {filepath}")
-                return
 
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url, follow_redirects=True) as response:
@@ -154,7 +120,10 @@ async def download_file(filename: str) -> None:
                             async for chunk in response.aiter_bytes(block_size):
                                 fr.write(chunk)
                                 progress.update(download_task, completed=response.num_bytes_downloaded)
-            print(f"File downloaded: {filepath}")
+            if args.verbose:
+                print(f"File downloaded: {filepath}")
+            return
+    print(f"Could not find file {filename} in available model versions")
 
 
 class File:
@@ -203,7 +172,6 @@ class File:
                         if file_type == ".ckpt":
                             files_as_objects.append(File(file_name, download_url, sha256_hash))
 
-            # print(files_as_objects)
             return files_as_objects
 
 
@@ -223,9 +191,7 @@ async def main():
 
     # Print the file names and URLs
     for file in files_as_objects:
-        print(f"\nDownloading {file.name}\n")
-        await download_file(file.name)
-
+        await download_file(file.download_url, file.name)
 
 
 if __name__ == '__main__':

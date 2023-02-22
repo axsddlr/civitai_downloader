@@ -70,54 +70,57 @@ async def map_api():
 
 async def download_file(download_url, filename: str) -> None:
     _, _, file_type, modelver_list = await map_api()
-    for ftype in file_type:
-        for modelver in modelver_list:
-            files = modelver["files"]
-            for file in files:
-                if file["name"] != filename:
-                    continue
-                if args.verbose:
-                    print(f"Checking if {filename} exists...")
-                # create filepath if it doesn't exist
-                if not os.path.exists(os.path.join(os.getcwd(), str(ftype))):
-                    os.makedirs(os.path.join(os.getcwd(), str(ftype)))
-                # else:
-                #     print(f"{ftype} directory already exists. Skipping creation...")
 
-                filepath = os.path.join(os.getcwd(), ftype, filename)
+    for modelver, ftype in zip(modelver_list, file_type):
+        if args.verbose:
+            print(f"Checking model version {modelver['name']}...")
+        files = modelver["files"]
+        for file in files:
+            if file["name"] != filename:
+                continue
+            if args.verbose:
+                print(f"Checking if {filename} exists...")
+            # create filepath if it doesn't exist
+            if not os.path.exists(os.path.join(os.getcwd(), str(ftype))):
+                os.makedirs(os.path.join(os.getcwd(), str(ftype)))
+            # else:
+            #     print(f"{ftype} directory already exists. Skipping creation...")
 
-                # check if file already exists
-                if os.path.exists(filepath):
-                    # check if file size matches expected size
-                    filesize = os.path.getsize(filepath)
-                    if filesize == file["sizeKB"] * 1024:
-                        if args.verbose:
-                            print(f"{filename} already exists and is the correct size. Skipping download...")
-                        return
+            filepath = os.path.join(os.getcwd(), ftype, filename)
 
-                print(f"\nDownloading {filename} from {download_url}...")
-                block_size = 1024 * 1024 * 4  # 4 MB
+            # check if file already exists
+            if os.path.exists(filepath):
+                # check if file size matches expected size
+                filesize = os.path.getsize(filepath)
+                if filesize == file["sizeKB"] * 1024:
+                    if args.verbose:
+                        print(f"{filename} already exists and is the correct size. Skipping download...")
+                    return
 
-                async with httpx.AsyncClient() as client:
-                    async with client.stream("GET", download_url, follow_redirects=True) as response:
-                        response.raise_for_status()
-                        total = int(response.headers["Content-Length"])
+            print(f"\nDownloading {filename} from {download_url}...")
+            block_size = 1024 * 1024 * 4  # 4 MB
 
-                        with rich.progress.Progress(
-                                "[progress.percentage]{task.percentage:>3.0f}%",
-                                rich.progress.BarColumn(bar_width=50),
-                                rich.progress.DownloadColumn(),
-                                rich.progress.TransferSpeedColumn(),
-                        ) as progress:
-                            download_task = progress.add_task("Download", total=total)
-                            with open(filepath, "wb") as fr:
-                                async for chunk in response.aiter_bytes(block_size):
-                                    fr.write(chunk)
-                                    progress.update(download_task, completed=response.num_bytes_downloaded)
-                if args.verbose:
-                    print(f"File downloaded: {filepath}")
-                return
-        print(f"Could not find file {filename} in available model versions")
+            async with httpx.AsyncClient() as client:
+                async with client.stream("GET", download_url, follow_redirects=True) as response:
+                    response.raise_for_status()
+                    total = int(response.headers["Content-Length"])
+
+                    with rich.progress.Progress(
+                            "[progress.percentage]{task.percentage:>3.0f}%",
+                            rich.progress.BarColumn(bar_width=70),
+                            rich.progress.DownloadColumn(),
+                            rich.progress.TransferSpeedColumn(),
+                    ) as progress:
+                        download_task = progress.add_task("Download", total=total)
+                        with open(filepath, "wb") as fr:
+                            async for chunk in response.aiter_bytes(block_size):
+                                fr.write(chunk)
+                                progress.update(download_task, completed=response.num_bytes_downloaded)
+            if args.verbose:
+                print(f"File downloaded: {filepath}")
+            # return statement should be unindented to continue iterating over other models and versions
+            return
+    print(f"Could not find file {filename} in available model versions")
 
 
 class File:

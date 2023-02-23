@@ -1,307 +1,211 @@
-# Importing the argparse module
 import argparse
+import asyncio
 import json
 import os
-import re
-import threading
 
-import requests
-from tqdm import tqdm
+import httpx
+import rich.progress
 
-from src.downloader import downloadFile
-from src.utils.utils import headers
-from src.utils.utils import readMemory, writeMemory, printv
+with open('config.json', 'r') as f:
+    config = json.load(f)
 
-# Creating an argument parser object
+api_key = config["civitai_api_key"]
+APIKEY = f"Bearer {api_key}"
+
+version = "0.0.1"
+
+border = "=" * 50
+message = f"       Running civitai_download.py v{version}"
+print(f"\n{border}\n{message}\n{border}\n")
+
+# It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
-
-# Adding the arguments for the file names
-parser.add_argument("--lora", action="store_true", help="Load LORA.txt instead of id.txt")
-parser.add_argument("--ti", action="store_true", help="Load TextualInversion.txt instead of id.txt")
-parser.add_argument("--ckpt", action="store_true", help="Load Checkpoint.txt instead of id.txt")
-parser.add_argument("--hn", action="store_true", help="Load Hypernetwork.txt instead of id.txt")
+parser.add_argument("--verbose", action="store_true", help="Print debug messages")
 
 # Parsing the arguments
 args = parser.parse_args()
 
 
-def get_model_id():
+async def get_all_models():
     """
-    It checks if the file `id.txt` exists, if it does not exist, it creates it, if it exists, it reads the file and returns
-    a list of all the numbers in the file.
-    :return: A list of all the model ids.
+    It makes a request to the Civitai API, and returns a list of all the models that are available for download
+    :return: A list of dictionaries, each dictionary is a model.
     """
-    # Checking if the user specified a different file name
-    if args.lora:
-        file_name = "LORA.txt"
-    elif args.ti:
-        file_name = "TextualInversion.txt"
-    elif args.ckpt:
-        file_name = "Checkpoint.txt"
-    elif args.hn:
-        file_name = "Hypernetwork.txt"
-    else:
-        file_name = "id.txt"
+    async with httpx.AsyncClient() as client:
+        all_models = []
+        params = {
+            "types": ("Checkpoint", "TextualInversion", "Hypernetwork", "LORA", "AestheticGradient"),
+            "period": "AllTime",
+            "limit": 100,
+            "page": 1
+        }
+        url = "https://civitai.com/api/v1/models"
+        querystring = {"sort": "Newest", "favorites": "true"}
+        headers = {"Authorization": APIKEY}
 
-    # Checking if the file exists. If it does not exist, it will create it.
-    if not os.path.exists(file_name):
-        with open(file_name, "w") as f:
-            f.write("")
-            print(f"{file_name} file created, run the script again")
-    else:
-        with open(file_name, "r") as f:
-            # Getting all the numbers from the file and putting them in a list.
-            model_id_list = [re.search("\d+", line.strip()).group() for line in f if line.strip()]
-        return model_id_list
+        # It's making a request to the Civitai API, and if the request is successful, it's adding the response to the
+        # all_models list.
+        response = await client.get(url, headers=headers, params={**params, **querystring})
+        if response.status_code == 200:
+            response_json = response.json()
+            all_models.extend(response_json["items"])
 
-
-# Define the list only once
-aListOfAllDownloadedModels = []
-
-# Call the readMemory function to get updated values
-updatedList = readMemory()
-
-# Update the list with the updated values
-aListOfAllDownloadedModels = updatedList
-
-
-def getModels(session):
-    """
-    It takes a session object and returns a list of model objects
-
-    :param session: the session object that you created earlier
-    :return: A list of dictionaries.
-    """
-    model_ids = get_model_id()
-    models = []
-    for model_id in model_ids:
-        model_response = session.get(f"https://civitai.com/api/v1/models/{str(model_id)}", headers=headers)
-        try:
-            model_data = json.loads(model_response.text)
-        except ValueError:
-            print(f"Invalid JSON response for model id: {model_id}, URL: {model_response.url}")
-            continue
-        models.append(model_data)
-    if len(models) == 0:
-        print("id.txt is empty, please add model ids to it")
-        exit()
-    else:
-        return models
-
-
-session_downloadedFileCount = 0
-session_downloadedBytes = 0
-failedHashes = 0
-
-
-def isModelAlreadyInMemory(modelIdStr, model):
-    """
-    If the model used as a key, in the dictionary of all models, returns the same version id as the model's version id, then
-    the model has already been downloaded
-
-    :param modelIdStr: The model's id, as a string
-    :param model: The model object from the API
-    :return: A boolean indicating whether the model has already been downloaded
-    """
-    if modelIdStr in aListOfAllDownloadedModels:
-        if aListOfAllDownloadedModels[modelIdStr] == model["modelVersions"][0]["id"]:
-            print("Skipping model, already in memory", model["name"])
-            return True
-        print("Update found for model", model["name"])
-    return False
-
-
-def findFiles(model):
-    """
-    It takes a model as input and returns a list of all the files in the model's directory.
-
-    :param model: The model you want to find files for
-    """
-    files = []
-    acceptableTypes = ["Pruned Model", "Model", "VAE"]
-    modelFound = False
-    for file in model["modelVersions"][0]["files"]:
-        # print(f"{file}")
-        if file["type"] in acceptableTypes:
-            # if file["type"] == "Model" and modelFound:  # Prevent multiple models from being downloaded
-            #    continue
-            # if file["type"] == "Model":
-            #    modelFound = True
-            print(f"Added {file['name']}")
-            files.append(file)
-
-    return files
-
-
-# It creates a class called File.
-class File:
-    def __init__(self, name, downloadUrl, imageUrl, hash):
-        self.name = name
-        self.downloadUrl = downloadUrl
-        self.imageUrl = imageUrl
-        self.hash = hash
-
-
-def getFiles(model):
-    """
-    It takes a model object and returns a list of File objects
-
-    :param model: The model object that we're getting the files for
-    :return: A list of File objects.
-    """
-    files = findFiles(model)
-    filesAsObjects = []
-
-    safetensorfound = False
-    pickletensorfound = False
-    for file in files:
-        # print(f"{file}")
-        # find a safetensor first, if any
-        if file["format"] == "SafeTensor":
-            # use this one
-            safetensorfound = True
-            modelCkptFileName = file["name"]
-            modelCkptDownloadLink = file["downloadUrl"]
-            try:
-                modelCkptHash = file["hashes"]["SHA256"]
-            except KeyError:
-                modelCkptHash = None
-            modelImage = model["modelVersions"][0]["images"][0]["url"]
-            break
-    if safetensorfound == False:
-        # grab a Pickle instead
-        pickletensorfound = False
-        for file in files:
-            if file["format"] == "PickleTensor":
-                # use this one
-                pickletensorfound = True
-                modelCkptFileName = file["name"]
-                modelCkptDownloadLink = file["downloadUrl"]
-                try:
-                    modelCkptHash = file["hashes"]["SHA256"]
-                except KeyError:
-                    modelCkptHash = None
-                modelImage = model["modelVersions"][0]["images"][0]["url"]
-                break
-    if pickletensorfound == False and safetensorfound == False:
-        # Houston we have a problem
-        print(f"Error, neither a safetensor nor pickletensor found... update your code")
-    else:
-        filesAsObjects.append(File(modelCkptFileName, modelCkptDownloadLink, modelImage, modelCkptHash))
-
-    return filesAsObjects
-
-
-def iterateAModel(model):
-    """
-    > Iterate through all the layers in a model and print out the layer name and the number of parameters in that layer
-
-    :param model: the model to iterate
-    """
-    global aListOfAllDownloadedModels
-
-    files = getFiles(model)
-
-    # It creates a directory called JSON if it doesn't already exist.
-
-    # Checking if there are any files in the model.
-    if len(files) > 0:
-        os.makedirs("JSON", exist_ok=True)
-        with open(os.path.join("JSON", files[0].name + ".json"), "w") as f:
-            json.dump(model, f, indent=4)
-    else:
-        print("No files found, skipping...")
-        return
-
-    # Iterating through all the files in the model.
-    for file in files:
-        downloadSuccessful = downloadFile(file.downloadUrl, file.imageUrl, modelType=model["type"], hash=file.hash)
-
-        if not downloadSuccessful:
-            printv(f"Download failed, {file.name} skipping...")
-            return
-
-        # Iterating through all the model versions and getting all the trained words.
-        trainedWords = [item for sublist in model["modelVersions"] for item in sublist["trainedWords"]]
-
-        if len(trainedWords) > 0:
-            trainedWords = list(set(trainedWords))
-            model_to_file = {
-                "LORA": "LORA/" + file.name + ".txt",
-                "TextualInversion": "TextualInversion/" + file.name + ".txt",
-                "Checkpoint": "Checkpoint/" + file.name + ".txt",
-            }
-
-            file_path = model_to_file.get(model["type"], None)
-            if not file_path:
-                print("No file path provided, skipping...")
-            elif os.path.exists(file_path):
-                print(f"File path exists {file_path}, skipping...")
-            else:
-                with open(file_path, "w+", encoding="utf-8") as f:
-                    f.write(', '.join(trainedWords))
-
-    # Adding the model to the list of all downloaded models.
-    aListOfAllDownloadedModels[model["id"]] = model["modelVersions"][0]["id"]
-
-
-def waitUntilAllThreadsAreDone(allThreads):
-    """
-    It waits until all the threads in the list `allThreads` are done
-
-    :param allThreads: a list of all the threads that are running
-    """
-    for thread in allThreads:
-        thread.join()
-
-
-allThreads = []
-multiThreadLimit = 20
-session = requests.Session()
-allModels = getModels(session)
-
-# Iterating through all the models in the list `allModels` and printing out a progress bar.
-# Downloading all the models from the session.
-for model in tqdm(getModels(session), desc="Downloading models", leave=True, position=0):
-    try:
-
-        modelExists = isModelAlreadyInMemory(model["id"], model)
-    except KeyError:
-        print(f"KeyError, model: {model}")
-        continue
-
-    modelIsCheckpoint = model["type"] == "Checkpoint"
-
-    if not modelExists:
-        if modelIsCheckpoint:  # If the model is a checkpoint then go in single threading to avoid errors
-            iterateAModel(model)
-            continue
+            # It's getting all the models from the Civitai API.
+            for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
+                params["page"] = page_num
+                response = await client.get(url, headers=headers, params={**params, **querystring})
+                if response.status_code == 200:
+                    response_json = response.json()
+                    all_models.extend(response_json["items"])
+            if args.verbose:
+                print(f"Found {len(all_models)} models")
+            return all_models
         else:
-            #  Start new thread
-            newThread = threading.Thread(target=iterateAModel, args=(model,))
-            newThread.start()
-            allThreads.append(newThread)
+            print(f"Request failed with status code {response.status_code}")
 
-    if session_downloadedFileCount > 10 or session_downloadedBytes > 1024 * 1024 * 1024:  # Downloaded 50 files or 1GB
-        session_downloadedBytes = 0
-        writeMemory(aListOfAllDownloadedModels)
 
-    if len(threading.enumerate()) > 20:  # 50 threads or a checkpoint
-        print("Waiting for threads to finish...")
-        waitUntilAllThreadsAreDone(allThreads)  # Wait up for all the downloads to finish
+async def map_api():
+    """
+    It returns a list of all the model version IDs, a list of all the model IDs, the type of the first model in the
+    list of all models, and a list of the first model version for each model :return: model_versions_id, model_ids,
+    file_type, modelver_list
+    """
+    # It's getting all the models from the Civitai API.
+    all_models = await get_all_models()
 
-    if len(threading.enumerate()) > 20 or model["type"] == "Checkpoint":  # 50 threads or a checkpoint
-        waitUntilAllThreadsAreDone(allThreads)  # Wait up for all the downloads to finish
-    else:
-        # Handle the case where the 'id' key is not in the model dictionary
-        continue
-        # print("Error: the 'id' key is not in the model dictionary.")
+    file_type = [model["type"] for model in all_models]
+    model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
+    model_ids = [model["modelVersions"][0]["modelId"] for model in all_models]
+    modelver_list = [model["modelVersions"][0] for model in all_models]
+    return model_versions_id, model_ids, file_type, modelver_list
 
-    writeMemory(aListOfAllDownloadedModels)
 
-# It waits until all the threads in the list `allThreads` are done.
-waitUntilAllThreadsAreDone(allThreads)
-# Writing the list of all downloaded models to a file called `memory.json`.
-writeMemory(aListOfAllDownloadedModels)
-# Printing the number of failed hashes.
-print(f"Failed hashes: {failedHashes}")
+async def download_file(download_url, filename: str) -> None:
+    """
+    Download the file from the URL and save it to the current working directory
+
+    :param download_url: The URL to download the file from
+    :param filename: the name of the file you want to download
+    :type filename: str
+    :return: Nothing is being returned.
+    """
+    _, _, file_type, modelver_list = await map_api()
+
+    for modelver, ftype in zip(modelver_list, file_type):
+        if args.verbose:
+            print(f"Checking model version {modelver['name']}...")
+        files = modelver["files"]
+        for file in files:
+            if file["name"] != filename:
+                continue
+            if args.verbose:
+                print(f"Checking if {filename} exists...")
+            # create filepath if it doesn't exist
+            if not os.path.exists(os.path.join(os.getcwd(), str(ftype))):
+                os.makedirs(os.path.join(os.getcwd(), str(ftype)))
+            # else:
+            #     print(f"{ftype} directory already exists. Skipping creation...")
+
+            filepath = os.path.join(os.getcwd(), ftype, filename)
+
+            # check if file already exists
+            if os.path.exists(filepath):
+                # check if file size matches expected size
+                filesize = os.path.getsize(filepath)
+                if filesize == file["sizeKB"] * 1024:
+                    if args.verbose:
+                        print(f"{filename} already exists and is the correct size. Skipping download...")
+                    return
+
+            print(f"\nDownloading {filename} from {download_url}...")
+            block_size = 1024 * 1024 * 4  # 4 MB
+
+            async with httpx.AsyncClient() as client:
+                async with client.stream("GET", download_url, follow_redirects=True) as response:
+                    response.raise_for_status()
+                    total = int(response.headers["Content-Length"])
+
+                    with rich.progress.Progress(
+                            "[progress.percentage]{task.percentage:>3.0f}%",
+                            rich.progress.BarColumn(bar_width=70),
+                            rich.progress.DownloadColumn(),
+                            rich.progress.TransferSpeedColumn(),
+                    ) as progress:
+                        download_task = progress.add_task("Download", total=total)
+                        with open(filepath, "wb") as fr:
+                            async for chunk in response.aiter_bytes(block_size):
+                                fr.write(chunk)
+                                progress.update(download_task, completed=response.num_bytes_downloaded)
+            if args.verbose:
+                print(f"File downloaded: {filepath}")
+            return
+    print(f"Could not find file {filename} in available model versions")
+
+
+class File:
+    def __init__(self, name, download_url, sha256_hash):
+        """
+        This function takes in three arguments, and assigns them to the three attributes of the class
+
+        :param name: The name of the file
+        :param download_url: The URL to download the file from
+        :param sha256_hash: The SHA256 hash of the file. This is used to verify the integrity of the file
+        """
+        self.name = name
+        self.download_url = download_url
+        self.sha256_hash = sha256_hash
+
+    @staticmethod
+    async def get_files(modelver):
+        """
+        > It takes a model version object and returns a list of File objects
+
+        :param modelver: The model version object that you want to get the files from
+        :return: A list of File objects.
+        """
+        files = modelver["files"]
+        files_as_objects = []
+        required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
+
+        for ext in required_extensions:
+            for file in files:
+                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                    file_name = file["name"]
+                    download_url = file["downloadUrl"]
+                    sha256_hash = file["hashes"]["SHA256"]
+                    file_type = os.path.splitext(file_name)[1]
+                    if file_type == ext:
+                        files_as_objects.append(File(file_name, download_url, sha256_hash))
+
+        return files_as_objects
+
+
+async def get_all_files():
+    """
+    It gets all the files for all the model versions
+    :return: A list of all the files in the database.
+    """
+    # It's unpacking the tuple returned by get_model_versions_and_ids() into three variables.
+    _, _, _, modelver_list = await map_api()
+    all_files = []
+    for modelver in modelver_list:
+        files = await File.get_files(modelver)
+        all_files.extend(files)
+    return all_files
+
+
+async def main():
+    """
+    It downloads all the files in the files_as_objects list
+    """
+    # Get all files
+    files_as_objects = await get_all_files()
+
+    # It's downloading all the files in the files_as_objects list.
+    for file in files_as_objects:
+        await download_file(file.download_url, file.name)
+
+
+if __name__ == '__main__':
+    # It's running the main() function asynchronously.
+    asyncio.run(main())

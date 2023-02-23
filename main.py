@@ -1,8 +1,9 @@
+import argparse
 import asyncio
-import httpx
 import json
 import os
-import argparse
+
+import httpx
 import rich.progress
 
 with open('config.json', 'r') as f:
@@ -11,10 +12,8 @@ with open('config.json', 'r') as f:
 api_key = config["civitai_api_key"]
 APIKEY = f"Bearer {api_key}"
 
+# It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
-
-# Adding the arguments for the file names
-parser.add_argument("--pickle", action="store_true", help="Only download PickleTensor files")
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")
 
 # Parsing the arguments
@@ -22,6 +21,10 @@ args = parser.parse_args()
 
 
 async def get_all_models():
+    """
+    It makes a request to the Civitai API, and returns a list of all the models that are available for download
+    :return: A list of dictionaries, each dictionary is a model.
+    """
     async with httpx.AsyncClient() as client:
         all_models = []
         params = {
@@ -34,11 +37,14 @@ async def get_all_models():
         querystring = {"sort": "Newest", "favorites": "true"}
         headers = {"Authorization": APIKEY}
 
+        # It's making a request to the Civitai API, and if the request is successful, it's adding the response to the
+        # all_models list.
         response = await client.get(url, headers=headers, params={**params, **querystring})
         if response.status_code == 200:
             response_json = response.json()
             all_models.extend(response_json["items"])
 
+            # It's getting all the models from the Civitai API.
             for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
                 params["page"] = page_num
                 response = await client.get(url, headers=headers, params={**params, **querystring})
@@ -69,6 +75,14 @@ async def map_api():
 
 
 async def download_file(download_url, filename: str) -> None:
+    """
+    Download the file from the URL and save it to the current working directory
+
+    :param download_url: The URL to download the file from
+    :param filename: the name of the file you want to download
+    :type filename: str
+    :return: Nothing is being returned.
+    """
     _, _, file_type, modelver_list = await map_api()
 
     for modelver, ftype in zip(modelver_list, file_type):
@@ -118,19 +132,31 @@ async def download_file(download_url, filename: str) -> None:
                                 progress.update(download_task, completed=response.num_bytes_downloaded)
             if args.verbose:
                 print(f"File downloaded: {filepath}")
-            # return statement should be unindented to continue iterating over other models and versions
             return
     print(f"Could not find file {filename} in available model versions")
 
 
 class File:
     def __init__(self, name, download_url, sha256_hash):
+        """
+        This function takes in three arguments, and assigns them to the three attributes of the class
+
+        :param name: The name of the file
+        :param download_url: The URL to download the file from
+        :param sha256_hash: The SHA256 hash of the file. This is used to verify the integrity of the file
+        """
         self.name = name
         self.download_url = download_url
         self.sha256_hash = sha256_hash
 
     @staticmethod
     async def get_files(modelver):
+        """
+        > It takes a model version object and returns a list of File objects
+
+        :param modelver: The model version object that you want to get the files from
+        :return: A list of File objects.
+        """
         files = modelver["files"]
         files_as_objects = []
         required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
@@ -149,6 +175,10 @@ class File:
 
 
 async def get_all_files():
+    """
+    It gets all the files for all the model versions
+    :return: A list of all the files in the database.
+    """
     # It's unpacking the tuple returned by get_model_versions_and_ids() into three variables.
     _, _, _, modelver_list = await map_api()
     all_files = []
@@ -159,14 +189,17 @@ async def get_all_files():
 
 
 async def main():
+    """
+    It downloads all the files in the files_as_objects list
+    """
     # Get all files
     files_as_objects = await get_all_files()
 
-    # Print the file names and URLs
+    # It's downloading all the files in the files_as_objects list.
     for file in files_as_objects:
-        print(file.name)
-        # await download_file(file.download_url, file.name)
+        await download_file(file.download_url, file.name)
 
 
 if __name__ == '__main__':
+    # It's running the main() function asynchronously.
     asyncio.run(main())

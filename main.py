@@ -10,7 +10,6 @@ with open('config.json', 'r') as f:
     config = json.load(f)
 
 api_key = config["civitai_api_key"]
-APIKEY = f"Bearer {api_key}"
 
 version = "0.0.1"
 
@@ -28,8 +27,8 @@ args = parser.parse_args()
 
 async def get_all_models():
     """
-    It makes a request to the Civitai API, and returns a list of all the models that are available for download
-    :return: A list of dictionaries, each dictionary is a model.
+    It's getting all the models from the Civitai API
+    :return: A list of all the models.
     """
     async with httpx.AsyncClient() as client:
         all_models = []
@@ -41,10 +40,9 @@ async def get_all_models():
         }
         url = "https://civitai.com/api/v1/models"
         querystring = {"sort": "Newest", "favorites": "true"}
-        headers = {"Authorization": APIKEY}
+        headers = {"Authorization": f"Bearer {api_key}"}
 
-        # It's making a request to the Civitai API, and if the request is successful, it's adding the response to the
-        # all_models list.
+        # Retrieve all available models.
         response = await client.get(url, headers=headers, params={**params, **querystring})
         if response.status_code == 200:
             response_json = response.json()
@@ -101,12 +99,15 @@ async def download_file(download_url, filename: str) -> None:
             if args.verbose:
                 print(f"Checking if {filename} exists...")
             # create filepath if it doesn't exist
-            if not os.path.exists(os.path.join(os.getcwd(), str(ftype))):
-                os.makedirs(os.path.join(os.getcwd(), str(ftype)))
-            # else:
-            #     print(f"{ftype} directory already exists. Skipping creation...")
+            filepath = os.path.join(os.getcwd(), ftype)
+            if not os.path.exists(filepath):
+                os.makedirs(filepath)
+                if args.verbose:
+                    print(f"Created {ftype} directory.")
+            else:
+                print(f"{ftype} directory already exists. Skipping creation.")
 
-            filepath = os.path.join(os.getcwd(), ftype, filename)
+            filepath = os.path.join(filepath, filename)
 
             # check if file already exists
             if os.path.exists(filepath):
@@ -133,11 +134,9 @@ async def download_file(download_url, filename: str) -> None:
                     ) as progress:
                         download_task = progress.add_task("Download", total=total)
                         with open(filepath, "wb") as fr:
-                            async for chunk in response.aiter_bytes(block_size):
+                            async for chunk in response.aiter_bytes(chunk_size=block_size):
                                 fr.write(chunk)
-                                progress.update(download_task, completed=response.num_bytes_downloaded)
-            if args.verbose:
-                print(f"File downloaded: {filepath}")
+                                progress.update(download_task, advance=len(chunk))
             return
     print(f"Could not find file {filename} in available model versions")
 

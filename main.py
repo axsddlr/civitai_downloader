@@ -133,43 +133,19 @@ class File:
     async def get_files(modelver):
         files = modelver["files"]
         files_as_objects = []
+        required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
 
-        if files:
-            # First, search for safetensors files (if not prioritized by the user)
-            if not args.pickle:
-                for file in files:
-                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                        file_name = file["name"]
-                        download_url = file["downloadUrl"]
-                        sha256_hash = file["hashes"]["SHA256"]
-                        file_type = os.path.splitext(file_name)[1]
-                        if file_type == ".safetensors":
-                            files_as_objects.append(File(file_name, download_url, sha256_hash))
+        for ext in required_extensions:
+            for file in files:
+                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                    file_name = file["name"]
+                    download_url = file["downloadUrl"]
+                    sha256_hash = file["hashes"]["SHA256"]
+                    file_type = os.path.splitext(file_name)[1]
+                    if file_type == ext:
+                        files_as_objects.append(File(file_name, download_url, sha256_hash))
 
-            # If the user wants to prioritize ckpt files, search for them first
-            if args.pickle:
-                for file in files:
-                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                        file_name = file["name"]
-                        download_url = file["downloadUrl"]
-                        sha256_hash = file["hashes"]["SHA256"]
-                        file_type = os.path.splitext(file_name)[1]
-                        if file_type == ".ckpt":
-                            files_as_objects.append(File(file_name, download_url, sha256_hash))
-
-            # If no safetensors or ckpt file is found (or if the user did not prioritize),
-            # search for ckpt files (if not already prioritized)
-            if not files_as_objects:
-                for file in files:
-                    if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                        file_name = file["name"]
-                        download_url = file["downloadUrl"]
-                        sha256_hash = file["hashes"]["SHA256"]
-                        file_type = os.path.splitext(file_name)[1]
-                        if file_type == ".ckpt":
-                            files_as_objects.append(File(file_name, download_url, sha256_hash))
-
-            return files_as_objects
+        return files_as_objects
 
 
 async def get_all_files():
@@ -188,7 +164,8 @@ async def main():
 
     # Print the file names and URLs
     for file in files_as_objects:
-        await download_file(file.download_url, file.name)
+        print(file.name)
+        # await download_file(file.download_url, file.name)
 
 
 if __name__ == '__main__':

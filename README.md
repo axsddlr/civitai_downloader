@@ -61,7 +61,6 @@ This is an example of how to list things you need to use the software and how to
 }
 ```
 
-create a `id.txt` file and paste in links you want to download
 ![menu1.png](assets%2Fmenu1.png) ![menu2.png](assets%2Fmenu2.png)
 ![menu3.png](assets%2Fmenu3.png) ![menu4.png](assets%2Fmenu4.png)
 

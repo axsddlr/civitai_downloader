@@ -22,7 +22,7 @@
 <div id="index"></div>
 
 * <p align="left"><a href="#prereq">Installation</a></p>
-* <p align="left"><a href="#config">id.txt</a></p>
+* <p align="left"><a href="#config">API Key</a></p>
 * <p align="left"><a href="#usage">Usage</a></p>
 * <p align="left"><a href="#credits">Credits</a></p>
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -46,18 +46,24 @@ This is an example of how to list things you need to use the software and how to
    ```
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-## id.txt
+## config.json
 <div id="config"></div>
 
+1. go to your Civitai account and go to `Settings` > `API`
+2. create a name for your api key and click `Save`
+3. copy the api key and paste it into `example.config.json` replacing `<api key here>`
+4. rename `example.config.json` to `config.json`
+
+```json
+{
+  "civitai_api_key": "<api key here>"
+}
+```
+
 create a `id.txt` file and paste in links you want to download
+![menu1.png](assets%2Fmenu1.png) ![menu2.png](assets%2Fmenu2.png)
+![menu3.png](assets%2Fmenu3.png) ![menu4.png](assets%2Fmenu4.png)
 
-supported formats:
-```
-
-https://civitai.com/models/5216 or
-https://civitai.com/models/5216/rev
-
-```
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Usage
@@ -66,14 +72,17 @@ https://civitai.com/models/5216/rev
    ```sh
   python main.py
    ```
+extra options
+   ```sh
+  python main.py -h
+   ```
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Credits
 <div id="credits"></div>
 
    ```markdown
-  Scruffy#2098
-  Clicky#6060 (initial creator)
+  Clicky#6060 (initial creation idea)
    ```
 
 ## License

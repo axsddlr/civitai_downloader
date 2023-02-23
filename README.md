@@ -25,6 +25,7 @@
 * <p align="left"><a href="#config">API Key</a></p>
 * <p align="left"><a href="#usage">Usage</a></p>
 * <p align="left"><a href="#credits">Credits</a></p>
+* <p align="left"><a href="#todo">Todo's</a></p>
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
@@ -83,6 +84,16 @@ extra options
 
    ```markdown
   Clicky#6060 (initial creation idea)
+   ```
+
+## TODO
+<div id="todo"></div>
+
+   ```markdown
+    1. auto download a preview image from item in API for each downloaded file
+    2. allow user to specify if they want to download pickletensor or safetensors files
+    3. allow user to specify if they want to download pruned version of the files
+    4. sql database to store all downloaded files info
    ```
 
 ## License

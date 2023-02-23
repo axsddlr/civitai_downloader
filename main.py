@@ -20,6 +20,8 @@ print(f"\n{border}\n{message}\n{border}\n")
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")
+parser.add_argument("--pickle", action="store_true", help="Whether to download PickleTensor files.")
+
 
 # Parsing the arguments
 args = parser.parse_args()
@@ -117,6 +119,16 @@ async def download_file(download_url, filename: str) -> None:
                     if args.verbose:
                         print(f"{filename} already exists and is the correct size. Skipping download...")
                     return
+
+            if not args.pickle and not file["name"].endswith("SafeTensor"):
+                if args.verbose:
+                    print(f"Skipping {filename} because the file does not end with SafeTensor.")
+                return
+
+            if not args.pickle and file["format"] == "PickleTensor":
+                if args.verbose:
+                    print(f"Skipping {filename} because the file format is PickleTensor.")
+                return
 
             print(f"\nDownloading {filename} from {download_url}...")
             block_size = 1024 * 1024 * 4  # 4 MB

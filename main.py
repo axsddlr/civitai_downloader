@@ -12,6 +12,12 @@ with open('config.json', 'r') as f:
 api_key = config["civitai_api_key"]
 APIKEY = f"Bearer {api_key}"
 
+version = "0.0.1"
+
+border = "=" * 50
+message = f"       Running civitai_download.py v{version}"
+print(f"\n{border}\n{message}\n{border}\n")
+
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")

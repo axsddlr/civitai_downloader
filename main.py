@@ -21,7 +21,7 @@ print(f"\n{border}\n{message}\n{border}\n")
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")
 parser.add_argument("--pickle", action="store_true", help="Whether to download PickleTensor files.")
-
+parser.add_argument("--preview", action="store_true", help="do not download preview images")
 
 # Parsing the arguments
 args = parser.parse_args()
@@ -82,12 +82,12 @@ async def map_api():
 
 async def download_file(download_url, filename: str) -> None:
     """
-    Download the file from the URL and save it to the current working directory
+    It downloads the file and preview image from the given URL
 
     :param download_url: The URL to download the file from
-    :param filename: the name of the file you want to download
+    :param filename: The name of the file you want to download
     :type filename: str
-    :return: Nothing is being returned.
+    :return: None
     """
     _, _, file_type, modelver_list = await map_api()
 
@@ -95,40 +95,23 @@ async def download_file(download_url, filename: str) -> None:
         if args.verbose:
             print(f"Checking model version {modelver['name']}...")
         files = modelver["files"]
+        modelImage = [pimage["url"] for pimage in modelver["images"]]
         for file in files:
             if file["name"] != filename:
                 continue
-            if args.verbose:
-                print(f"Checking if {filename} exists...")
+
             # create filepath if it doesn't exist
-            filepath = os.path.join(os.getcwd(), ftype)
-            if not os.path.exists(filepath):
-                os.makedirs(filepath)
-                if args.verbose:
-                    print(f"Created {ftype} directory.")
-            else:
-                print(f"{ftype} directory already exists. Skipping creation.")
+            file_dir = os.path.join(os.getcwd(), ftype)
+            if not os.path.exists(file_dir):
+                os.makedirs(file_dir)
 
-            filepath = os.path.join(filepath, filename)
+            # create file paths for saving
+            file_path = os.path.join(file_dir, filename)
 
-            # check if file already exists
-            if os.path.exists(filepath):
-                # check if file size matches expected size
-                filesize = os.path.getsize(filepath)
-                if filesize == file["sizeKB"] * 1024:
-                    if args.verbose:
-                        print(f"{filename} already exists and is the correct size. Skipping download...")
-                    return
-
-            if not args.pickle and not file["name"].endswith("SafeTensor"):
-                if args.verbose:
-                    print(f"Skipping {filename} because the file does not end with SafeTensor.")
-                return
-
-            if not args.pickle and file["format"] == "PickleTensor":
-                if args.verbose:
-                    print(f"Skipping {filename} because the file format is PickleTensor.")
-                return
+            # download image and file
+            if not args.preview:
+                preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
+                image_path = os.path.join(file_dir, preview_file_name)
 
             print(f"\nDownloading {filename} from {download_url}...")
             block_size = 1024 * 1024 * 4  # 4 MB
@@ -137,7 +120,6 @@ async def download_file(download_url, filename: str) -> None:
                 async with client.stream("GET", download_url, follow_redirects=True) as response:
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
-
                     with rich.progress.Progress(
                             "[progress.percentage]{task.percentage:>3.0f}%",
                             rich.progress.BarColumn(bar_width=70),
@@ -145,10 +127,20 @@ async def download_file(download_url, filename: str) -> None:
                             rich.progress.TransferSpeedColumn(),
                     ) as progress:
                         download_task = progress.add_task("Download", total=total)
-                        with open(filepath, "wb") as fr:
+                        with open(file_path, "wb") as fr:
                             async for chunk in response.aiter_bytes(chunk_size=block_size):
                                 fr.write(chunk)
                                 progress.update(download_task, advance=len(chunk))
+
+            if not args.preview:
+                preview_url = modelImage[0]
+                if args.verbose:
+                    print(f"\nDownloading preview image from {preview_url}...")
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(preview_url)
+                    response.raise_for_status()
+                    with open(image_path, "wb") as fi:
+                        fi.write(response.content)
             return
     print(f"Could not find file {filename} in available model versions")
 

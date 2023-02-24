@@ -11,7 +11,7 @@ with open('config.json', 'r') as f:
 
 api_key = config["civitai_api_key"]
 
-version = "0.0.1"
+version = "0.0.2"
 
 border = "=" * 50
 message = f"       Running civitai_download.py v{version}"

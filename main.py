@@ -108,6 +108,15 @@ async def download_file(download_url, filename: str) -> None:
             # create file paths for saving
             file_path = os.path.join(file_dir, filename)
 
+            # check if file already exists
+            if os.path.exists(file_path):
+                # check if file size matches expected size
+                filesize = os.path.getsize(file_path)
+                if filesize == file["sizeKB"] * 1024:
+                    if args.verbose:
+                        print(f"{filename} already exists and is the correct size. Skipping download...")
+                    return
+
             # download image and file
             if not args.preview:
                 preview_file_name = os.path.splitext(filename)[0] + ".preview.png"

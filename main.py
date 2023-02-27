@@ -20,7 +20,6 @@ print(f"\n{border}\n{message}\n{border}\n")
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")
-parser.add_argument("--pickle", action="store_true", help="Whether to download PickleTensor files.")
 parser.add_argument("--preview", action="store_true", help="do not download preview images")
 
 # Parsing the arguments
@@ -80,13 +79,46 @@ async def map_api():
     return model_versions_id, model_ids, file_type, modelver_list
 
 
-async def download_file(download_url, filename: str) -> None:
+class File:
+    def __init__(self, name, download_url, sha256_hash, is_primary):
+        """
+        This function takes in three arguments, and assigns them to the three attributes of the class
+
+        :param name: The name of the file
+        :param download_url: The URL to download the file from
+        :param sha256_hash: The SHA256 hash of the file. This is used to verify the integrity of the file
+        """
+        self.name = name
+        self.download_url = download_url
+        self.sha256_hash = sha256_hash
+        self.is_primary = is_primary
+
+    @staticmethod
+    async def get_files(modelver):
+        files = modelver["files"]
+        files_as_objects = []
+        required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
+
+        for ext in required_extensions:
+            for file in files:
+                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
+                    file_name = file["name"]
+                    download_url = file["downloadUrl"]
+                    sha256_hash = file["hashes"]["SHA256"]
+                    file_type = os.path.splitext(file_name)[1]
+                    if file_type == ext:
+                        file_is_primary = file.get("primary", False)
+                        if file_is_primary:
+                            files_as_objects.append(File(file_name, download_url, sha256_hash, file_is_primary))
+        return files_as_objects
+
+
+async def download_file(file: File) -> None:
     """
     It downloads the file and preview image from the given URL
 
-    :param download_url: The URL to download the file from
-    :param filename: The name of the file you want to download
-    :type filename: str
+    :param file: A File object representing the file to download
+    :type file: File
     :return: None
     """
     _, _, file_type, modelver_list = await map_api()
@@ -96,8 +128,8 @@ async def download_file(download_url, filename: str) -> None:
             print(f"Checking model version {modelver['name']}...")
         files = modelver["files"]
         modelImage = [pimage["url"] for pimage in modelver["images"]]
-        for file in files:
-            if file["name"] != filename:
+        for f in files:
+            if f["name"] != file.name:
                 continue
 
             # create filepath if it doesn't exist
@@ -106,29 +138,33 @@ async def download_file(download_url, filename: str) -> None:
                 os.makedirs(file_dir)
 
             # create file paths for saving
-            file_path = os.path.join(file_dir, filename)
+            file_path = os.path.join(file_dir, file.name)
 
             # check if file already exists
             if os.path.exists(file_path):
                 # check if file size matches expected size
                 filesize = os.path.getsize(file_path)
-                if filesize == file["sizeKB"] * 1024:
+                if filesize == f["sizeKB"] * 1024:
                     if args.verbose:
-                        print(f"{filename} already exists and is the correct size. Skipping download...")
+                        print(f"{file.name} already exists and is the correct size. Skipping download...")
                     return
 
             # download image and file
             if not args.preview:
-                preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
+                preview_file_name = os.path.splitext(file.name)[0] + ".preview.png"
                 image_path = os.path.join(file_dir, preview_file_name)
 
-            print(f"\nDownloading {filename} from {download_url}...")
+            print(f"\nDownloading {file.name} from {file.download_url}...")
             block_size = 1024 * 1024 * 4  # 4 MB
 
             async with httpx.AsyncClient() as client:
-                async with client.stream("GET", download_url, follow_redirects=True) as response:
+                async with client.stream("GET", file.download_url, follow_redirects=True) as response:
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
+                    expected_file_size = f["sizeKB"] * 1024
+                    if total != expected_file_size:
+                        raise Exception(
+                            f"Downloaded file has unexpected size: expected {expected_file_size}, got {total}")
                     with rich.progress.Progress(
                             "[progress.percentage]{task.percentage:>3.0f}%",
                             rich.progress.BarColumn(bar_width=70),
@@ -150,46 +186,10 @@ async def download_file(download_url, filename: str) -> None:
                     response.raise_for_status()
                     with open(image_path, "wb") as fi:
                         fi.write(response.content)
-            return
-    print(f"Could not find file {filename} in available model versions")
-
-
-class File:
-    def __init__(self, name, download_url, sha256_hash):
-        """
-        This function takes in three arguments, and assigns them to the three attributes of the class
-
-        :param name: The name of the file
-        :param download_url: The URL to download the file from
-        :param sha256_hash: The SHA256 hash of the file. This is used to verify the integrity of the file
-        """
-        self.name = name
-        self.download_url = download_url
-        self.sha256_hash = sha256_hash
-
-    @staticmethod
-    async def get_files(modelver):
-        """
-        > It takes a model version object and returns a list of File objects
-
-        :param modelver: The model version object that you want to get the files from
-        :return: A list of File objects.
-        """
-        files = modelver["files"]
-        files_as_objects = []
-        required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
-
-        for ext in required_extensions:
-            for file in files:
-                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                    file_name = file["name"]
-                    download_url = file["downloadUrl"]
-                    sha256_hash = file["hashes"]["SHA256"]
-                    file_type = os.path.splitext(file_name)[1]
-                    if file_type == ext:
-                        files_as_objects.append(File(file_name, download_url, sha256_hash))
-
-        return files_as_objects
+            # check file size after download
+            filesize = os.path.getsize(file_path)
+            if filesize != f["sizeKB"] * 1024:
+                raise Exception(f"Downloaded file has unexpected size: expected {f['sizeKB'] * 1024}, got {filesize}")
 
 
 async def get_all_files():
@@ -215,7 +215,7 @@ async def main():
 
     # It's downloading all the files in the files_as_objects list.
     for file in files_as_objects:
-        await download_file(file.download_url, file.name)
+        await download_file(file)
 
 
 if __name__ == '__main__':

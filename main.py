@@ -2,10 +2,7 @@ import argparse
 import json
 import re
 import os
-
-import cloudscraper
-
-scraper = cloudscraper.create_scraper(browser='chrome')
+import requests
 
 with open('config.json', 'r') as f:
     config = json.load(f)
@@ -37,7 +34,7 @@ def get_all_models():
     }
     querystring = {"sort": "Newest", "favorites": "true"}
 
-    response = scraper.get(url, headers=headers, params={**params, **querystring})
+    response = requests.get(url, headers=headers, params={**params, **querystring})
 
     if response.status_code != 200:
         print(f"Request failed with status code {response.status_code}")
@@ -48,49 +45,40 @@ def get_all_models():
 
     while "nextPage" in response_json["metadata"]:
         params["page"] += 1
-        response = scraper.get(url, headers=headers, params={**params, **querystring})
+        response = requests.get(url, headers=headers, params={**params, **querystring})
         response_json = response.json()
         all_models += response_json["items"]
 
     if args.verbose:
         print(f"Found {len(all_models)} models")
 
-    # print(all_models)
+    if args.verbose:
+        print("models found from likes: " + str(all_models))
     return all_models
 
 
-def get_primary_model_ids():
+def get_model_ids():
     all_models = get_all_models()
-    primary_model_ids = [version["id"] for model in all_models for version in model.get("modelVersions") if
-                         any(file.get("primary") is True for file in version.get("files", []))]
+    primary_model_ids = []
+
+    # Loop through each model in the list of all models
+    for model in all_models:
+        version = model.get("modelVersions")[0]  # Get the first version of the model
+        if 'files' in version:
+            for file in version["files"]:
+                if ('id' in file) and ('id' in version):
+                    if file.get("primary") is True:
+                        file_id = file["id"]
+                        file_modelId = version["id"]
+
+                        # Append the current "file_modelId" to the list of primary model IDs
+                        if file_modelId not in primary_model_ids:
+                            primary_model_ids.append(file_modelId)
     if args.verbose:
-        print(f"Found {len(primary_model_ids)} model ids: {primary_model_ids}")
-    return primary_model_ids if args.all else [primary_model_ids[0]]
-
-
-def mkdir(mdir):
-    if not os.path.exists(mdir):
-        os.makedirs(mdir)
-
-
-def file_exists(save_dir, model_id):
-    for file in os.listdir(save_dir):
-        if file.startswith(f"{model_id}_"):
-            return True
-    return False
-
-
-def get_download_url():
-    all_models = get_all_models()
-    primary_model_ids = [
-        ver["downloadUrl"]
-        for model in all_models
-        for ver in model.get("modelVersions")
-        if any(file.get("primary") is True for file in ver.get("files", []))
-    ]
-    if args.verbose:
-        print(f"Found {len(primary_model_ids)} model ids: {primary_model_ids}")
-    return primary_model_ids[0] if not args.all else primary_model_ids
+        print(f"Found {len(primary_model_ids)} primary model ids: {primary_model_ids}")
+    if not primary_model_ids:
+        raise ValueError("No primary model available")
+    return primary_model_ids
 
 
 def get_sizesKB():
@@ -105,53 +93,51 @@ def get_sizesKB():
     return sizes if args.all else [sizes[0]]
 
 
-def download_civitai_by_id_list(save_dir, model_id_list, download_url):
+def download_files(save_dir, model_id_list):
     # Make dir if not exists
-    mkdir(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
     existing_files = set(os.listdir(save_dir))
 
-    # Download files
-    print(f"Downloading {len(model_id_list)} files...")
-    for model_id in model_id_list:
-        url = download_url
+    # Create a session object from requests library
+    with requests.Session() as session:
+        # Download files
+        print(f"Downloading {len(model_id_list)} files...")
+        for model_id in model_id_list:
+            url = f"https://civitai.com/api/download/models/{model_id}"
 
-        # Skip if downloaded
-        if f"{model_id}_" in existing_files:
-            print(f"[NOTICE] {url} is already downloaded, skipping.")
-            continue
+            # Skip if downloaded
+            if f"{model_id}_" in existing_files:
+                print(f"[NOTICE] {url} is already downloaded, skipping.")
+                continue
 
-        # Download file
-        print(f"Downloading {url}...")
-        tmp_filename = os.path.join(save_dir, f"{model_id}.tmp")
-        with scraper.get(url, stream=True) as r:
-            # Set encoding to utf-8 to avoid character issues
-            r.encoding = 'utf-8'
-            with open(tmp_filename, 'wb') as fr:
-                for chunk in r.iter_content(chunk_size=8192):
-                    # If you have chunk encoded response uncomment if
-                    # and set chunk_size parameter to None.
-                    # if chunk
-                    fr.write(chunk)
-        print(r.headers)
-        if "Content-Disposition" not in r.headers:
-            os.remove(tmp_filename)
-            print(f"[INFO] {url} not found, skipping.")
-            continue
+            # Download file
+            print(f"Downloading {url}...")
+            tmp_filename = os.path.join(save_dir, f"{model_id}.tmp")
+            with session.get(url, stream=True, allow_redirects=True) as response:
+                # Handle 404 errors
+                if response.status_code == 404:
+                    print(f"[INFO] {url} not found, skipping.")
+                    continue
 
-        # Encode it into ISO-8859-1 and then return it to utf-8 (https://www.rfc-editor.org/rfc/rfc5987.txt)
-        headers_utf8 = r.headers["Content-Disposition"].encode('ISO-8859-1').decode()
-        file_name_raw = re.search(r'filename=\"(.*)\"', headers_utf8).group(1)
-        file_name = file_name_raw.replace(":", "_")
-        save_name = os.path.join(save_dir, f"{model_id}_{file_name}")
+                # Extract filename from headers
+                file_name = response.headers.get("content-disposition", "filename=")
+                file_name = re.findall("filename=(.+)", file_name)[0].strip('"')
+                file_name = file_name.replace(":", "_")
 
-        # Rename temporary files to filename
-        if os.path.exists(save_name):
-            os.remove(save_name)
-        os.rename(tmp_filename, save_name)
+                save_name = os.path.join(save_dir, f"{model_id}_{file_name}")
 
-        # Download finished
-        print(f"[INFO] Downloaded {url} to {save_name}!")
+                # Rename temporary files to filename
+                with open(tmp_filename, 'wb') as fr:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        fr.write(chunk)
+
+                if os.path.exists(save_name):
+                    os.remove(save_name)
+
+                os.rename(tmp_filename, save_name)
+
+                # Download finished
+                print(f"[INFO] Downloaded {url} to {save_name}!")
 
 
-download_civitai_by_id_list("downloads", get_primary_model_ids(), get_download_url())
-print(get_download_url())
+download_files("downloads", get_model_ids())

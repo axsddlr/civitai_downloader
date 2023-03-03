@@ -3,8 +3,9 @@ import json
 import re
 import os
 import requests
+from tqdm import tqdm
 
-with open('config.json', 'r') as f:
+with open('tst_config.json', 'r') as f:
     config = json.load(f)
 
 api_key = config["civitai_api_key"]
@@ -102,7 +103,7 @@ def download_files(save_dir, model_id_list):
     with requests.Session() as session:
         # Download files
         print(f"Downloading {len(model_id_list)} files...")
-        for model_id in model_id_list:
+        for model_id in tqdm(model_id_list):
             url = f"https://civitai.com/api/download/models/{model_id}"
 
             # Skip if downloaded
@@ -128,7 +129,8 @@ def download_files(save_dir, model_id_list):
 
                 # Rename temporary files to filename
                 with open(tmp_filename, 'wb') as fr:
-                    for chunk in response.iter_content(chunk_size=8192):
+                    for chunk in tqdm(response.iter_content(chunk_size=8192),
+                                      total=int(response.headers.get('content-length', 0)) // 8192, unit="KB"):
                         fr.write(chunk)
 
                 if os.path.exists(save_name):

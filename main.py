@@ -20,7 +20,6 @@ print(f"\n{border}\n{message}\n{border}\n")
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", action="store_true", help="Print debug messages")
-parser.add_argument("--pickle", action="store_true", help="Whether to download PickleTensor files.")
 parser.add_argument("--preview", action="store_true", help="do not download preview images")
 
 # Parsing the arguments

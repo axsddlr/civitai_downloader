@@ -58,7 +58,11 @@ async def get_all_models():
                     all_models.extend(response_json["items"])
             if args.verbose:
                 print(f"Found {len(all_models)} models")
-            return all_models
+            if len(all_models) == 0:
+                print("No models found. Please check your API key or like some models and try again.")
+                exit(1)
+            else:
+                return all_models
         else:
             print(f"Request failed with status code {response.status_code}")
 

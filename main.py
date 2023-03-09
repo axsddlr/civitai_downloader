@@ -181,6 +181,7 @@ class File:
         files = modelver["files"]
         files_as_objects = []
         required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
+        allowed_file_types = ["Model", "VAE", "Pruned Model"]
 
         for ext in required_extensions:
             for file in files:
@@ -189,7 +190,14 @@ class File:
                     download_url = file["downloadUrl"]
                     sha256_hash = file["hashes"]["SHA256"]
                     file_type = os.path.splitext(file_name)[1]
-                    if file_type == ext:
+
+                    if file_type == ext and "primary" in file and file["primary"] and "type" in file and file[
+                        "type"] in allowed_file_types:
+                        if "format" in file:
+                            if file["format"] == "SafeTensor":
+                                download_url = f"{download_url}?type={file['type']}&format=SafeTensor"
+                            elif file["format"] == "PickleTensor":
+                                download_url = f"{download_url}?type={file['type']}&format=PickleTensor"
                         files_as_objects.append(File(file_name, download_url, sha256_hash))
 
         return files_as_objects

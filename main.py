@@ -133,6 +133,9 @@ async def download_file(download_url, filename: str) -> None:
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url, follow_redirects=True,
                                          headers={"User-Agent": user_agent}) as response:
+                    if response.status_code == 429:
+                        print("Rate limited, waiting 10 seconds")
+                        await asyncio.sleep(10)
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
                     with rich.progress.Progress(
@@ -158,7 +161,6 @@ async def download_file(download_url, filename: str) -> None:
                         fi.write(response.content)
             return
     print(f"Could not find file {filename} in available model versions")
-
 
 class File:
     def __init__(self, name, download_url, sha256_hash):

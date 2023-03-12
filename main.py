@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import tempfile
 
 import httpx
 import rich.progress
@@ -133,22 +134,25 @@ async def download_file(download_url, filename: str) -> None:
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url, follow_redirects=True,
                                          headers={"User-Agent": user_agent}) as response:
-                    if response.status_code == 429:
-                        print("Rate limited, waiting 10 seconds")
-                        await asyncio.sleep(10)
+
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
-                    with rich.progress.Progress(
-                            "[progress.percentage]{task.percentage:>3.0f}%",
-                            rich.progress.BarColumn(bar_width=70),
-                            rich.progress.DownloadColumn(),
-                            rich.progress.TransferSpeedColumn(),
-                    ) as progress:
-                        download_task = progress.add_task("Download", total=total)
-                        with open(file_path, "wb") as fr:
+
+                    # It's creating a temporary file in the file_dir directory.
+                    with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
+                        with rich.progress.Progress(
+                                "[progress.percentage]{task.percentage:>3.0f}%",
+                                rich.progress.BarColumn(bar_width=70),
+                                rich.progress.DownloadColumn(),
+                                rich.progress.TransferSpeedColumn(),
+                        ) as progress:
+                            download_task = progress.add_task("Download", total=total)
                             async for chunk in response.aiter_bytes(chunk_size=block_size):
-                                fr.write(chunk)
+                                tmp_file.write(chunk)
                                 progress.update(download_task, advance=len(chunk))
+
+                    # move the temporary file to the final destination
+                    os.replace(tmp_file.name, file_path)
 
             if not args.preview:
                 preview_url = modelImage[0]

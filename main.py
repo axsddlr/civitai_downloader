@@ -25,6 +25,8 @@ parser.add_argument("--preview", action="store_true", help="do not download prev
 # Parsing the arguments
 args = parser.parse_args()
 
+user_agent = 'CivitaiLink:Automatic1111'
+
 
 async def get_all_models():
     """
@@ -41,7 +43,7 @@ async def get_all_models():
         }
         url = "https://civitai.com/api/v1/models"
         querystring = {"sort": "Newest", "favorites": "true"}
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = {"User-Agent": user_agent, "Authorization": f"Bearer {api_key}"}
 
         # Retrieve all available models.
         response = await client.get(url, headers=headers, params={**params, **querystring})
@@ -129,7 +131,8 @@ async def download_file(download_url, filename: str) -> None:
             block_size = 1024 * 1024 * 4  # 4 MB
 
             async with httpx.AsyncClient() as client:
-                async with client.stream("GET", download_url, follow_redirects=True) as response:
+                async with client.stream("GET", download_url, follow_redirects=True,
+                                         headers={"User-Agent": user_agent}) as response:
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
                     with rich.progress.Progress(

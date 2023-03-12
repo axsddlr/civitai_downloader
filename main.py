@@ -128,7 +128,7 @@ async def download_file(download_url, filename: str) -> None:
                 image_path = os.path.join(file_dir, preview_file_name)
 
             print(f"\nDownloading {filename} from {download_url}...")
-            block_size = 1024 * 1024 * 4  # 4 MB
+            block_size = 8192  # set the block size to 8192 bytes.
 
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url, follow_redirects=True,

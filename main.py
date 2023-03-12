@@ -159,7 +159,7 @@ async def download_file(download_url, filename: str) -> None:
                 if args.verbose:
                     print(f"\nDownloading preview image from {preview_url}...")
                 async with httpx.AsyncClient() as client:
-                    response = await client.get(preview_url)
+                    response = await client.get(preview_url, headers={"User-Agent": user_agent})
                     response.raise_for_status()
                     with open(image_path, "wb") as fi:
                         fi.write(response.content)

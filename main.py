@@ -7,16 +7,15 @@ import tempfile
 import httpx
 import rich.progress
 
-with open('tst_config.json', 'r') as f:
+with open('config.json', 'r') as f:
     config = json.load(f)
 
 api_key = config["civitai_api_key"]
 
-version = "0.0.2"
+version = "0.0.3"
 
 border = "=" * 50
-message = f"       Running civitai_download.py v{version}"
-print(f"\n{border}\n{message}\n{border}\n")
+print(f"\n{border}\n       Running civitai_download.py v{version}\n{border}\n")
 
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
@@ -25,8 +24,6 @@ parser.add_argument("--preview", action="store_true", help="do not download prev
 
 # Parsing the arguments
 args = parser.parse_args()
-
-user_agent = 'CivitaiLink:Automatic1111'
 
 
 async def get_all_models():

@@ -86,6 +86,14 @@ async def map_api():
     return model_versions_id, model_ids, file_type, modelver_list
 
 
+async def download_preview_image(preview_url, image_path):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(preview_url, headers={"User-Agent": user_agent})
+        response.raise_for_status()
+        with open(image_path, "wb") as fi:
+            fi.write(response.content)
+
+
 async def download_file(download_url, filename: str) -> None:
     """
     It downloads the file and preview image from the given URL
@@ -134,7 +142,6 @@ async def download_file(download_url, filename: str) -> None:
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url, follow_redirects=True,
                                          headers={"User-Agent": user_agent}) as response:
-
                     response.raise_for_status()
                     total = int(response.headers["Content-Length"])
 
@@ -155,16 +162,15 @@ async def download_file(download_url, filename: str) -> None:
                     os.replace(tmp_file.name, file_path)
 
             if not args.preview:
+                preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
+                image_path = os.path.join(file_dir, preview_file_name)
                 preview_url = modelImage[0]
                 if args.verbose:
                     print(f"\nDownloading preview image from {preview_url}...")
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(preview_url, headers={"User-Agent": user_agent})
-                    response.raise_for_status()
-                    with open(image_path, "wb") as fi:
-                        fi.write(response.content)
+                await download_preview_image(preview_url, image_path)
             return
     print(f"Could not find file {filename} in available model versions")
+
 
 class File:
     def __init__(self, name, download_url, sha256_hash):

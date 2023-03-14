@@ -86,12 +86,11 @@ async def map_api():
     return model_versions_id, model_ids, file_type, modelver_list
 
 
-async def download_preview_image(preview_url, image_path):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(preview_url, headers={"User-Agent": user_agent})
-        response.raise_for_status()
-        with open(image_path, "wb") as fi:
-            fi.write(response.content)
+async def download_preview_image(client, preview_url, image_path):
+    response = await client.get(preview_url)
+    response.raise_for_status()
+    with open(image_path, "wb") as fi:
+        fi.write(response.content)
 
 
 class File:
@@ -140,7 +139,7 @@ class File:
         return files_as_objects
 
 
-async def download_file(file: File) -> None:
+async def download_file(client, file: File) -> None:
     _, _, file_type, modelver_list = await map_api()
 
     for modelver, ftype in zip(modelver_list, file_type):
@@ -168,25 +167,24 @@ async def download_file(file: File) -> None:
         print(f"\nDownloading {filename} from {download_url}...")
         block_size = 8192
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream("GET", download_url, follow_redirects=True,
-                                     headers={"User-Agent": user_agent}) as response:
-                response.raise_for_status()
-                total = int(response.headers["Content-Length"])
+        async with client.stream("GET", download_url, follow_redirects=True,
+                                 headers={"User-Agent": user_agent}) as response:
+            response.raise_for_status()
+            total = int(response.headers["Content-Length"])
 
-                with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
-                    with rich.progress.Progress(
-                            "[progress.percentage]{task.percentage:>3.0f}%",
-                            rich.progress.BarColumn(bar_width=70),
-                            rich.progress.DownloadColumn(),
-                            rich.progress.TransferSpeedColumn(),
-                    ) as progress:
-                        download_task = progress.add_task("Download", total=total)
-                        async for chunk in response.aiter_bytes(chunk_size=block_size):
-                            tmp_file.write(chunk)
-                            progress.update(download_task, advance=len(chunk))
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
+                with rich.progress.Progress(
+                        "[progress.percentage]{task.percentage:>3.0f}%",
+                        rich.progress.BarColumn(bar_width=70),
+                        rich.progress.DownloadColumn(),
+                        rich.progress.TransferSpeedColumn(),
+                ) as progress:
+                    download_task = progress.add_task("Download", total=total)
+                    async for chunk in response.aiter_bytes(chunk_size=block_size):
+                        tmp_file.write(chunk)
+                        progress.update(download_task, advance=len(chunk))
 
-                os.replace(tmp_file.name, file_path)
+            os.replace(tmp_file.name, file_path)
 
         if not args.preview:
             preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
@@ -194,7 +192,7 @@ async def download_file(file: File) -> None:
             preview_url = modelImage[0]
             if args.verbose:
                 print(f"\nDownloading preview image from {preview_url}...")
-            await download_preview_image(preview_url, image_path)
+            await download_preview_image(client, preview_url, image_path)
 
 
 async def get_all_files():
@@ -218,9 +216,10 @@ async def main():
     # Get all files
     files_as_objects = await get_all_files()
 
-    # It's downloading all the files in the files_as_objects list.
-    for file in files_as_objects:
-        await download_file(file)
+    async with httpx.AsyncClient() as client:
+        # It's downloading all the files in the files_as_objects list.
+        for file in files_as_objects:
+            await download_file(client, file)
 
 
 if __name__ == '__main__':

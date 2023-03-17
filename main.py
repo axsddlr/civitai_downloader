@@ -12,11 +12,10 @@ with open('config.json', 'r') as f:
 
 api_key = config["civitai_api_key"]
 
-version = "0.0.2"
+version = "0.0.3"
 
 border = "=" * 50
-message = f"       Running civitai_download.py v{version}"
-print(f"\n{border}\n{message}\n{border}\n")
+print(f"\n{border}\n       Running civitai_download.py v{version}\n{border}\n")
 
 # It's creating a parser object, and adding an argument to it.
 parser = argparse.ArgumentParser()
@@ -25,8 +24,6 @@ parser.add_argument("--preview", action="store_true", help="do not download prev
 
 # Parsing the arguments
 args = parser.parse_args()
-
-user_agent = 'CivitaiLink:Automatic1111'
 
 
 async def get_all_models():
@@ -44,7 +41,7 @@ async def get_all_models():
         }
         url = "https://civitai.com/api/v1/models"
         querystring = {"sort": "Newest", "favorites": "true"}
-        headers = {"User-Agent": user_agent, "Authorization": f"Bearer {api_key}"}
+        headers = {"User-Agent": 'CivitaiLink:Automatic1111', "Authorization": f"Bearer {api_key}"}
 
         # Retrieve all available models.
         response = await client.get(url, headers=headers, params={**params, **querystring})
@@ -86,85 +83,12 @@ async def map_api():
     return model_versions_id, model_ids, file_type, modelver_list
 
 
-async def download_file(download_url, filename: str) -> None:
-    """
-    It downloads the file and preview image from the given URL
+async def download_preview_image(client, preview_url, image_path):
+    response = await client.get(preview_url)
+    response.raise_for_status()
+    with open(image_path, "wb") as fi:
+        fi.write(response.content)
 
-    :param download_url: The URL to download the file from
-    :param filename: The name of the file you want to download
-    :type filename: str
-    :return: None
-    """
-    _, _, file_type, modelver_list = await map_api()
-
-    for modelver, ftype in zip(modelver_list, file_type):
-        if args.verbose:
-            print(f"Checking model version {modelver['name']}...")
-        files = modelver["files"]
-        modelImage = [pimage["url"] for pimage in modelver["images"]]
-        for file in files:
-            if file["name"] != filename:
-                continue
-
-            # create filepath if it doesn't exist
-            file_dir = os.path.join(os.getcwd(), ftype)
-            if not os.path.exists(file_dir):
-                os.makedirs(file_dir)
-
-            # create file paths for saving
-            file_path = os.path.join(file_dir, filename)
-
-            # check if file already exists
-            if os.path.exists(file_path):
-                # check if file size matches expected size
-                filesize = os.path.getsize(file_path)
-                if filesize == file["sizeKB"] * 1024:
-                    if args.verbose:
-                        print(f"{filename} already exists and is the correct size. Skipping download...")
-                    return
-
-            # download image and file
-            if not args.preview:
-                preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
-                image_path = os.path.join(file_dir, preview_file_name)
-
-            print(f"\nDownloading {filename} from {download_url}...")
-            block_size = 8192  # set the block size to 8192 bytes.
-
-            async with httpx.AsyncClient() as client:
-                async with client.stream("GET", download_url, follow_redirects=True,
-                                         headers={"User-Agent": user_agent}) as response:
-
-                    response.raise_for_status()
-                    total = int(response.headers["Content-Length"])
-
-                    # It's creating a temporary file in the file_dir directory.
-                    with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
-                        with rich.progress.Progress(
-                                "[progress.percentage]{task.percentage:>3.0f}%",
-                                rich.progress.BarColumn(bar_width=70),
-                                rich.progress.DownloadColumn(),
-                                rich.progress.TransferSpeedColumn(),
-                        ) as progress:
-                            download_task = progress.add_task("Download", total=total)
-                            async for chunk in response.aiter_bytes(chunk_size=block_size):
-                                tmp_file.write(chunk)
-                                progress.update(download_task, advance=len(chunk))
-
-                    # move the temporary file to the final destination
-                    os.replace(tmp_file.name, file_path)
-
-            if not args.preview:
-                preview_url = modelImage[0]
-                if args.verbose:
-                    print(f"\nDownloading preview image from {preview_url}...")
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(preview_url, headers={"User-Agent": user_agent})
-                    response.raise_for_status()
-                    with open(image_path, "wb") as fi:
-                        fi.write(response.content)
-            return
-    print(f"Could not find file {filename} in available model versions")
 
 class File:
     def __init__(self, name, download_url, sha256_hash):
@@ -212,6 +136,62 @@ class File:
         return files_as_objects
 
 
+async def download_file(client, file: File) -> None:
+    _, _, file_type, modelver_list = await map_api()
+
+    for modelver, ftype in zip(modelver_list, file_type):
+        if args.verbose:
+            print(f"Checking model version {modelver['name']}...")
+        files = modelver["files"]
+        modelImage = [pimage["url"] for pimage in modelver["images"]]
+
+        download_url = file.download_url
+        filename = file.name
+
+        file_dir = os.path.join(os.getcwd(), ftype)
+        if not os.path.exists(file_dir):
+            os.makedirs(file_dir)
+
+        file_path = os.path.join(file_dir, filename)
+
+        if os.path.exists(file_path):
+            filesize = os.path.getsize(file_path)
+            if filesize == file["sizeKB"] * 1024:
+                if args.verbose:
+                    print(f"{filename} already exists and is the correct size. Skipping download...")
+                return
+
+        print(f"\nDownloading {filename} from {download_url}...")
+        block_size = 8192
+
+        async with client.stream("GET", download_url, follow_redirects=True,
+                                 headers={"User-Agent": 'CivitaiLink:Automatic1111'}) as response:
+            response.raise_for_status()
+            total = int(response.headers["Content-Length"])
+
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
+                with rich.progress.Progress(
+                        "[progress.percentage]{task.percentage:>3.0f}%",
+                        rich.progress.BarColumn(bar_width=70),
+                        rich.progress.DownloadColumn(),
+                        rich.progress.TransferSpeedColumn(),
+                ) as progress:
+                    download_task = progress.add_task("Download", total=total)
+                    async for chunk in response.aiter_bytes(chunk_size=block_size):
+                        tmp_file.write(chunk)
+                        progress.update(download_task, advance=len(chunk))
+
+            os.replace(tmp_file.name, file_path)
+
+        if not args.preview:
+            preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
+            image_path = os.path.join(file_dir, preview_file_name)
+            preview_url = modelImage[0]
+            if args.verbose:
+                print(f"\nDownloading preview image from {preview_url}...")
+            await download_preview_image(client, preview_url, image_path)
+
+
 async def get_all_files():
     """
     It gets all the files for all the model versions
@@ -233,9 +213,10 @@ async def main():
     # Get all files
     files_as_objects = await get_all_files()
 
-    # It's downloading all the files in the files_as_objects list.
-    for file in files_as_objects:
-        await download_file(file.download_url, file.name)
+    async with httpx.AsyncClient() as client:
+        # It's downloading all the files in the files_as_objects list.
+        for file in files_as_objects:
+            await download_file(client, file)
 
 
 if __name__ == '__main__':

@@ -41,7 +41,7 @@ async def get_all_models():
         }
         url = "https://civitai.com/api/v1/models"
         querystring = {"sort": "Newest", "favorites": "true"}
-        headers = {"User-Agent": user_agent, "Authorization": f"Bearer {api_key}"}
+        headers = {"User-Agent": 'CivitaiLink:Automatic1111', "Authorization": f"Bearer {api_key}"}
 
         # Retrieve all available models.
         response = await client.get(url, headers=headers, params={**params, **querystring})
@@ -165,7 +165,7 @@ async def download_file(client, file: File) -> None:
         block_size = 8192
 
         async with client.stream("GET", download_url, follow_redirects=True,
-                                 headers={"User-Agent": user_agent}) as response:
+                                 headers={"User-Agent": 'CivitaiLink:Automatic1111'}) as response:
             response.raise_for_status()
             total = int(response.headers["Content-Length"])
 

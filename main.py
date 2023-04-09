@@ -61,6 +61,7 @@ def extract_files_data(data):
         primary_key = item.get(
             "primary"
         )  # Replace 'primary_key' with the actual key name
+        model_type = item.get("type")  # Get the type from the item
         model_versions = item.get("modelVersions", [])
 
         if model_versions:  # Check if there are any model versions available
@@ -69,10 +70,11 @@ def extract_files_data(data):
             for file in files:
                 file_info = {
                     "primary_key": primary_key,
+                    "type": model_type,
                     "id": file.get("id"),
                     "name": file.get("name"),
                     "sizeKB": file.get("sizeKB"),
-                    "type": file.get("type"),
+                    "file_type": file.get("type"),
                     "metadata": file.get("metadata"),
                     "hashes": file.get("hashes"),
                     "downloadUrl": file.get("downloadUrl"),
@@ -81,17 +83,24 @@ def extract_files_data(data):
     return files_data
 
 
-def download_file(downloadUrl, filename):
+def download_file(downloadUrl, filename, folder):
+    # Create the folder if it doesn't exist
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    # Save the file to the specified folder
+    filepath = os.path.join(folder, filename)
     response = requests.get(downloadUrl, stream=True)
     response.raise_for_status()
 
-    with open(filename, "wb") as f:
+    with open(filepath, "wb") as f:
         for chunk in response.iter_content(chunk_size=8192):
             f.write(chunk)
 
-    print(f"File '{filename}' downloaded successfully.")
+    print(f"File '{filepath}' downloaded successfully.")
 
 
+# Get models data
 models_data = get_all_models()
 
 # Extract files data
@@ -102,6 +111,7 @@ for file_info in files_data:
     if "primary_key" in file_info:
         downloadUrl = file_info["downloadUrl"]
         filename = file_info["name"]
-        download_file(downloadUrl, filename)
+        folder = file_info["type"]  # Use the 'type' value as the folder name
+        download_file(downloadUrl, filename, folder)
     else:
         print(f"Skipping '{file_info['name']}' as it does not have a primary key.")

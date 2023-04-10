@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import tempfile
 
 # Read configuration from the file
 with open("config.json", "r") as f:
@@ -83,21 +84,42 @@ def extract_files_data(data):
     return files_data
 
 
-def download_file(downloadUrl, filename, folder):
+def download_file(downloadUrl, filename, folder, sizeKB):
     # Create the folder if it doesn't exist
     if not os.path.exists(folder):
         os.makedirs(folder)
 
-    # Save the file to the specified folder
     filepath = os.path.join(folder, filename)
+
+    # Check if the file already exists
+    if os.path.exists(filepath):
+        print(f"File '{filepath}' already exists. Skipping download.")
+        return
+
+    # Get the file with a GET request
     response = requests.get(downloadUrl, stream=True)
     response.raise_for_status()
 
-    with open(filepath, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+    # Get the Content-Length header to find the file size in bytes
+    file_size_bytes = int(response.headers.get("Content-Length", 0))
+    # Convert file size to kilobytes
+    file_size_kb = file_size_bytes / 1024
 
-    print(f"File '{filepath}' downloaded successfully.")
+    # Compare the file size with the expected sizeKB
+    if round(file_size_kb, 2) != round(sizeKB, 2):
+        print(
+            f"File size mismatch: expected {sizeKB:.2f} KB, but found {file_size_kb:.2f} KB. Skipping download."
+        )
+        return
+
+    # Save the file to a temporary location
+    with tempfile.NamedTemporaryFile(delete=False, mode="wb", dir=folder) as temp_file:
+        for chunk in response.iter_content(chunk_size=8192):
+            temp_file.write(chunk)
+
+    # Move the temporary file to the specified folder
+    os.replace(temp_file.name, filepath)
+    print(f"File '{filepath}' ({file_size_kb:.2f} KB) downloaded successfully.")
 
 
 # Get models data
@@ -111,7 +133,8 @@ for file_info in files_data:
     if "primary_key" in file_info:
         downloadUrl = file_info["downloadUrl"]
         filename = file_info["name"]
-        folder = file_info["type"]  # Use the 'type' value as the folder name
-        download_file(downloadUrl, filename, folder)
+        folder = file_info["type"]
+        sizeKB = file_info["sizeKB"]
+        download_file(downloadUrl, filename, folder, sizeKB)
     else:
         print(f"Skipping '{file_info['name']}' as it does not have a primary key.")

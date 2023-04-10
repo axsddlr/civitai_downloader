@@ -10,6 +10,11 @@ with open("config.json", "r") as f:
 
 api_key = config["civitai_api_key"]
 
+version = "0.0.4"
+
+border = "=" * 50
+print(f"\n{border}\n       Running civitai_download.py v{version}\n{border}\n")
+
 
 def get_all_models():
     """

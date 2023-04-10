@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import tempfile
+from rich.progress import Progress
 
 # Read configuration from the file
 with open("config.json", "r") as f:
@@ -126,8 +127,12 @@ def download_file(downloadUrl, filename, folder, sizeKB):
 
     # Save the file to a temporary location
     with tempfile.NamedTemporaryFile(delete=False, mode="wb", dir=folder) as temp_file:
-        for chunk in response.iter_content(chunk_size=8192):
-            temp_file.write(chunk)
+        with Progress() as progress:
+            task_id = progress.add_task("[cyan]Downloading...", total=file_size_bytes)
+
+            for chunk in response.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+                progress.update(task_id, advance=len(chunk))
 
     # Move the temporary file to the specified folder
     os.replace(temp_file.name, filepath)

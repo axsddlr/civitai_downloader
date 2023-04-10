@@ -93,8 +93,20 @@ def download_file(downloadUrl, filename, folder, sizeKB):
 
     # Check if the file already exists
     if os.path.exists(filepath):
-        print(f"File '{filepath}' already exists. Skipping download.")
-        return
+        # Check the existing file size
+        existing_file_size_bytes = os.path.getsize(filepath)
+        existing_file_size_kb = existing_file_size_bytes / 1024
+
+        # Compare the existing file size with the expected sizeKB
+        if round(existing_file_size_kb, 2) == round(sizeKB, 2):
+            print(
+                f"File '{filepath}' already exists and has the same size. Skipping download."
+            )
+            return
+        else:
+            print(
+                f"File '{filepath}' already exists but has a different size. Downloading new file..."
+            )
 
     # Get the file with a GET request
     response = requests.get(downloadUrl, stream=True)

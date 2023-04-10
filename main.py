@@ -1,224 +1,162 @@
-import argparse
-import asyncio
+import requests
 import json
 import os
 import tempfile
+from rich.progress import Progress
 
-import httpx
-import rich.progress
-
-with open('config.json', 'r') as f:
+# Read configuration from the file
+with open("config.json", "r") as f:
     config = json.load(f)
 
 api_key = config["civitai_api_key"]
 
-version = "0.0.3"
+version = "0.0.4"
 
 border = "=" * 50
 print(f"\n{border}\n       Running civitai_download.py v{version}\n{border}\n")
 
-# It's creating a parser object, and adding an argument to it.
-parser = argparse.ArgumentParser()
-parser.add_argument("--verbose", action="store_true", help="Print debug messages")
-parser.add_argument("--preview", action="store_true", help="do not download preview images")
 
-# Parsing the arguments
-args = parser.parse_args()
-
-
-async def get_all_models():
+def get_all_models():
     """
     It's getting all the models from the Civitai API
     :return: A list of all the models.
     """
-    async with httpx.AsyncClient() as client:
-        all_models = []
-        params = {
-            "types": ("Checkpoint", "TextualInversion", "Hypernetwork", "LORA", "AestheticGradient"),
-            "period": "AllTime",
-            "limit": 100,
-            "page": 1
-        }
-        url = "https://civitai.com/api/v1/models"
-        querystring = {"sort": "Newest", "favorites": "true"}
-        headers = {"User-Agent": 'CivitaiLink:Automatic1111', "Authorization": f"Bearer {api_key}"}
+    all_models = []
+    params = {
+        "types": (
+            "Checkpoint",
+            "TextualInversion",
+            "Hypernetwork",
+            "LORA",
+            "AestheticGradient",
+        ),
+        "period": "AllTime",
+        "limit": 100,
+        "page": 1,
+    }
+    url = "https://civitai.com/api/v1/models"
+    querystring = {"sort": "Newest", "favorites": "true"}
+    headers = {
+        "User-Agent": "CivitaiLink:Automatic1111",
+        "Authorization": f"Bearer {api_key}",
+    }
 
-        # Retrieve all available models.
-        response = await client.get(url, headers=headers, params={**params, **querystring})
-        if response.status_code == 200:
-            response_json = response.json()
-            all_models.extend(response_json["items"])
+    # Retrieve all available models.
+    response = requests.get(url, headers=headers, params={**params, **querystring})
+    if response.status_code == 200:
+        response_json = response.json()
+        all_models.extend(response_json["items"])
 
-            # It's getting all the models from the Civitai API.
-            for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
-                params["page"] = page_num
-                response = await client.get(url, headers=headers, params={**params, **querystring})
-                if response.status_code == 200:
-                    response_json = response.json()
-                    all_models.extend(response_json["items"])
-            if args.verbose:
-                print(f"Found {len(all_models)} models")
-            if len(all_models) == 0:
-                print("No models found. Please check your API key or like some models and try again.")
-                exit(1)
-            else:
-                return all_models
-        else:
-            print(f"Request failed with status code {response.status_code}")
-
-
-async def map_api():
-    """
-    It returns a list of all the model version IDs, a list of all the model IDs, the type of the first model in the
-    list of all models, and a list of the first model version for each model :return: model_versions_id, model_ids,
-    file_type, modelver_list
-    """
-    # It's getting all the models from the Civitai API.
-    all_models = await get_all_models()
-
-    file_type = [model["type"] for model in all_models]
-    model_versions_id = [version["id"] for model in all_models for version in model["modelVersions"]]
-    model_ids = [model["modelVersions"][0]["modelId"] for model in all_models]
-    modelver_list = [model["modelVersions"][0] for model in all_models]
-    return model_versions_id, model_ids, file_type, modelver_list
+        # It's getting all the models from the Civitai API.
+        for page_num in range(2, response_json["metadata"]["totalPages"] + 1):
+            params["page"] = page_num
+            response = requests.get(
+                url, headers=headers, params={**params, **querystring}
+            )
+            if response.status_code == 200:
+                response_json = response.json()
+                all_models.extend(response_json["items"])
+        return all_models
+    else:
+        print(f"Request failed with status code {response.status_code}")
+        return []
 
 
-async def download_preview_image(client, preview_url, image_path):
-    response = await client.get(preview_url)
-    response.raise_for_status()
-    with open(image_path, "wb") as fi:
-        fi.write(response.content)
+def extract_files_data(data):
+    files_data = []
+    for item in data:
+        primary_key = item.get(
+            "primary"
+        )  # Replace 'primary_key' with the actual key name
+        model_type = item.get("type")  # Get the type from the item
+        model_versions = item.get("modelVersions", [])
 
-
-class File:
-    def __init__(self, name, download_url, sha256_hash):
-        """
-        This function takes in three arguments, and assigns them to the three attributes of the class
-
-        :param name: The name of the file
-        :param download_url: The URL to download the file from
-        :param sha256_hash: The SHA256 hash of the file. This is used to verify the integrity of the file
-        """
-        self.name = name
-        self.download_url = download_url
-        self.sha256_hash = sha256_hash
-
-    @staticmethod
-    async def get_files(modelver):
-        """
-        > It takes a model version object and returns a list of File objects
-
-        :param modelver: The model version object that you want to get the files from
-        :return: A list of File objects.
-        """
-        files = modelver["files"]
-        files_as_objects = []
-        required_extensions = [".ckpt", ".safetensors", ".zip", ".pt", ".bin"]
-        allowed_file_types = ["Model", "VAE", "Pruned Model"]
-
-        for ext in required_extensions:
+        if model_versions:  # Check if there are any model versions available
+            latest_model_version = model_versions[0]  # Get the latest model version
+            files = latest_model_version.get("files", [])
             for file in files:
-                if "downloadUrl" in file and "hashes" in file and "SHA256" in file["hashes"]:
-                    file_name = file["name"]
-                    download_url = file["downloadUrl"]
-                    sha256_hash = file["hashes"]["SHA256"]
-                    file_type = os.path.splitext(file_name)[1]
-
-                    if file_type == ext and "primary" in file and file["primary"] and "type" in file and file[
-                        "type"] in allowed_file_types:
-                        if "format" in file:
-                            if file["format"] == "SafeTensor":
-                                download_url = f"{download_url}?type={file['type']}&format=SafeTensor"
-                            elif file["format"] == "PickleTensor":
-                                download_url = f"{download_url}?type={file['type']}&format=PickleTensor"
-                        files_as_objects.append(File(file_name, download_url, sha256_hash))
-
-        return files_as_objects
+                file_info = {
+                    "primary_key": primary_key,
+                    "type": model_type,
+                    "id": file.get("id"),
+                    "name": file.get("name"),
+                    "sizeKB": file.get("sizeKB"),
+                    "file_type": file.get("type"),
+                    "metadata": file.get("metadata"),
+                    "hashes": file.get("hashes"),
+                    "downloadUrl": file.get("downloadUrl"),
+                }
+                files_data.append(file_info)
+    return files_data
 
 
-async def download_file(client, file: File) -> None:
-    _, _, file_type, modelver_list = await map_api()
+def download_file(downloadUrl, filename, folder, sizeKB):
+    # Create the folder if it doesn't exist
+    if not os.path.exists(folder):
+        os.makedirs(folder)
 
-    for modelver, ftype in zip(modelver_list, file_type):
-        if args.verbose:
-            print(f"Checking model version {modelver['name']}...")
-        files = modelver["files"]
-        modelImage = [pimage["url"] for pimage in modelver["images"]]
+    filepath = os.path.join(folder, filename)
 
-        download_url = file.download_url
-        filename = file.name
+    # Check if the file already exists
+    if os.path.exists(filepath):
+        # Check the existing file size
+        existing_file_size_bytes = os.path.getsize(filepath)
+        existing_file_size_kb = existing_file_size_bytes / 1024
 
-        file_dir = os.path.join(os.getcwd(), ftype)
-        if not os.path.exists(file_dir):
-            os.makedirs(file_dir)
+        # Compare the existing file size with the expected sizeKB
+        if round(existing_file_size_kb, 2) == round(sizeKB, 2):
+            print(
+                f"File '{filepath}' already exists and has the same size. Skipping download."
+            )
+            return
+        else:
+            print(
+                f"File '{filepath}' already exists but has a different size. Downloading new file..."
+            )
 
-        file_path = os.path.join(file_dir, filename)
+    # Get the file with a GET request
+    response = requests.get(downloadUrl, stream=True)
+    response.raise_for_status()
 
-        if os.path.exists(file_path):
-            filesize = os.path.getsize(file_path)
-            if filesize == file["sizeKB"] * 1024:
-                if args.verbose:
-                    print(f"{filename} already exists and is the correct size. Skipping download...")
-                return
+    # Get the Content-Length header to find the file size in bytes
+    file_size_bytes = int(response.headers.get("Content-Length", 0))
+    # Convert file size to kilobytes
+    file_size_kb = file_size_bytes / 1024
 
-        print(f"\nDownloading {filename} from {download_url}...")
-        block_size = 8192
+    # Compare the file size with the expected sizeKB
+    if round(file_size_kb, 2) != round(sizeKB, 2):
+        print(
+            f"File size mismatch: expected {sizeKB:.2f} KB, but found {file_size_kb:.2f} KB. Skipping download."
+        )
+        return
 
-        async with client.stream("GET", download_url, follow_redirects=True,
-                                 headers={"User-Agent": 'CivitaiLink:Automatic1111'}) as response:
-            response.raise_for_status()
-            total = int(response.headers["Content-Length"])
+    # Save the file to a temporary location
+    with tempfile.NamedTemporaryFile(delete=False, mode="wb", dir=folder) as temp_file:
+        with Progress() as progress:
+            task_id = progress.add_task("[cyan]Downloading...", total=file_size_bytes)
 
-            with tempfile.NamedTemporaryFile(mode="wb", delete=False, dir=file_dir) as tmp_file:
-                with rich.progress.Progress(
-                        "[progress.percentage]{task.percentage:>3.0f}%",
-                        rich.progress.BarColumn(bar_width=70),
-                        rich.progress.DownloadColumn(),
-                        rich.progress.TransferSpeedColumn(),
-                ) as progress:
-                    download_task = progress.add_task("Download", total=total)
-                    async for chunk in response.aiter_bytes(chunk_size=block_size):
-                        tmp_file.write(chunk)
-                        progress.update(download_task, advance=len(chunk))
+            for chunk in response.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+                progress.update(task_id, advance=len(chunk))
 
-            os.replace(tmp_file.name, file_path)
-
-        if not args.preview:
-            preview_file_name = os.path.splitext(filename)[0] + ".preview.png"
-            image_path = os.path.join(file_dir, preview_file_name)
-            preview_url = modelImage[0]
-            if args.verbose:
-                print(f"\nDownloading preview image from {preview_url}...")
-            await download_preview_image(client, preview_url, image_path)
+    # Move the temporary file to the specified folder
+    os.replace(temp_file.name, filepath)
+    print(f"File '{filepath}' ({file_size_kb:.2f} KB) downloaded successfully.")
 
 
-async def get_all_files():
-    """
-    It gets all the files for all the model versions
-    :return: A list of all the files in the database.
-    """
-    # It's unpacking the tuple returned by get_model_versions_and_ids() into three variables.
-    _, _, _, modelver_list = await map_api()
-    all_files = []
-    for modelver in modelver_list:
-        files = await File.get_files(modelver)
-        all_files.extend(files)
-    return all_files
+# Get models data
+models_data = get_all_models()
 
+# Extract files data
+files_data = extract_files_data(models_data)
 
-async def main():
-    """
-    It downloads all the files in the files_as_objects list
-    """
-    # Get all files
-    files_as_objects = await get_all_files()
-
-    async with httpx.AsyncClient() as client:
-        # It's downloading all the files in the files_as_objects list.
-        for file in files_as_objects:
-            await download_file(client, file)
-
-
-if __name__ == '__main__':
-    # It's running the main() function asynchronously.
-    asyncio.run(main())
+# Download files with primary_key
+for file_info in files_data:
+    if "primary_key" in file_info:
+        downloadUrl = file_info["downloadUrl"]
+        filename = file_info["name"]
+        folder = file_info["type"]
+        sizeKB = file_info["sizeKB"]
+        download_file(downloadUrl, filename, folder, sizeKB)
+    else:
+        print(f"Skipping '{file_info['name']}' as it does not have a primary key.")
